@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI; // For UI elements
 using UnityEngine.SceneManagement; // For scene management
 using TMPro; // For TextMeshPro 
+using DG.Tweening;
 
 public class GameController : MonoBehaviour
 {
@@ -50,6 +51,12 @@ public class GameController : MonoBehaviour
     private bool isHalted = false;
     public float haltDuration = 1.0f; // How long the player is halted after hitting an obstacle
 
+    [Header("Collision Effects")]
+    public bool enableSpinAnimation = true;
+    public float spinDuration = 1f;
+    public float spinRotations = 3f;
+    public bool enableBounceEffect = true;
+    public bool enableFlashingEffect = true;
 
     // For repeating backgrounds
     private List<SpriteRenderer> backgrounds = new List<SpriteRenderer>();
@@ -65,6 +72,10 @@ public class GameController : MonoBehaviour
     [Header("Player Animation")]
     public float playerAnimationFrameRate = 0.1f; // Faster player animation (less seconds between swaps)
     private ObstacleAnimation playerAnimation;
+
+    [Header("Lane System")]
+    public int numberOfLanes = 5;       // Number of distinct lanes on the road
+    public float[] lanePositions;       // Will store Y positions of each lane
 
     [Header("Speed Effects")]
     public ParticleSystem speedLines;               // Assign a particle system in the inspector
@@ -105,6 +116,19 @@ public class GameController : MonoBehaviour
         // Set initial world speed
         worldSpeed = gearSpeeds[currentGear];
 
+        if (playerCar == null)
+            playerCar = GameObject.FindGameObjectWithTag("Player");
+
+        if (obstacleParent == null)
+            obstacleParent = new GameObject("Obstacles").transform;
+
+        // Calculate lane boundaries
+        minYPosition = -laneWidth / 2;
+        maxYPosition = laneWidth / 2;
+
+        // Setup lane positions
+        SetupLanes();
+
         // Start obstacle spawning
         StartCoroutine(SpawnObstacles());
 
@@ -118,6 +142,22 @@ public class GameController : MonoBehaviour
         SetupSpeedLines();
     }
 
+    void SetupLanes()
+    {
+        // Initialize lane positions array
+        lanePositions = new float[numberOfLanes];
+
+        // Calculate lane spacing based on road width
+        float laneSpacing = laneWidth / (numberOfLanes);
+        float firstLaneY = minYPosition + (laneSpacing / 2); // Center of first lane
+
+        // Calculate Y position for each lane
+        for (int i = 0; i < numberOfLanes; i++)
+        {
+            lanePositions[i] = firstLaneY + (i * laneSpacing);
+            Debug.Log($"Lane {i} position: {lanePositions[i]}");
+        }
+    }
     void SetupPlayerAnimation()
     {
         if (playerCar != null)
@@ -346,15 +386,16 @@ public class GameController : MonoBehaviour
                 continue;
             }
 
-            // Random Y position within road boundaries
-            float obstacleY = Random.Range(minYPosition, maxYPosition);
+            // Select a random lane for this obstacle
+            int laneIndex = Random.Range(0, numberOfLanes);
+            float obstacleY = lanePositions[laneIndex];
 
             // Random obstacle selection
             if (obstacles != null && obstacles.Length > 0)
             {
                 GameObject obstaclePrefab = obstacles[Random.Range(0, obstacles.Length)];
 
-                // Position obstacles ahead of the player's view
+                // Position obstacles ahead of the player's view in the selected lane
                 Vector3 spawnPos = new Vector3(spawnDistance, obstacleY, 0f);
 
                 // Instantiate obstacle - no movement component needed
@@ -369,7 +410,6 @@ public class GameController : MonoBehaviour
             }
 
             // Calculate spawn interval based on player speed
-            // Map gear speeds to spawn intervals: 0.75s (slowest) to 0.50s (fastest)
             float minSpawnInterval = 0.50f; // Fastest spawn rate at max speed
             float maxSpawnInterval = 0.75f; // Slowest spawn rate at min speed
 
@@ -385,6 +425,7 @@ public class GameController : MonoBehaviour
             yield return new WaitForSeconds(spawnInterval);
         }
     }
+
 
     IEnumerator AnimateObstacles()
     {
@@ -463,23 +504,32 @@ public class GameController : MonoBehaviour
         // Set halt state
         isHalted = true;
 
-        // Optional: Visual feedback that player is halted
-        // For example, flash the player sprite or play a sound
+        // Get the transform to animate
+        Transform playerTransform = playerCar.transform;
+
+        // Mario Kart style spin animation with DOTween
+        // Spin the car around the z-axis 3 times (1080 degrees)
+        playerTransform.DORotate(new Vector3(0, 0, 1080), haltDuration, RotateMode.FastBeyond360)
+            .SetEase(Ease.OutQuad);
+
+        // Optional: Add a little bounce effect
+        playerTransform.DOPunchScale(new Vector3(0.2f, 0.2f, 0.2f), haltDuration, 10, 1)
+            .SetEase(Ease.OutElastic);
+
+        // Optional: Visual feedback with color flashing
         SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
         if (playerSprite != null)
         {
-            // Flash the car sprite
-            for (int i = 0; i < 3; i++)
-            {
-                playerSprite.color = new Color(1f, 0.5f, 0.5f); // Reddish tint
-                yield return new WaitForSeconds(0.1f);
-                playerSprite.color = Color.white;
-                yield return new WaitForSeconds(0.1f);
-            }
+            // Flash the car sprite with DOTween
+            playerSprite.DOColor(new Color(1f, 0.5f, 0.5f), haltDuration * 0.25f)
+                .SetLoops(4, LoopType.Yoyo);
         }
 
         // Wait for the halt duration
         yield return new WaitForSeconds(haltDuration);
+
+        // Reset rotation to normal when done
+        playerTransform.DORotate(Vector3.zero, 0.3f);
 
         // Resume movement
         isHalted = false;
