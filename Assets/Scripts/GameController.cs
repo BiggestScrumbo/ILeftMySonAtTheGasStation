@@ -27,6 +27,9 @@ public class GameController : MonoBehaviour
     public float minObstacleSpacing = 10f;
     public float spawnDistance = 20f; // How far ahead obstacles spawn
     public float despawnDistance = 10f; // How far behind obstacles despawn
+    public bool IsHalted() { return isHalted; }
+    public bool IsGameOver() { return isGameOver; }
+    public bool HasWon() { return hasWon; }
 
     [Header("UI")]
     public TMP_Text gearText;
@@ -51,6 +54,24 @@ public class GameController : MonoBehaviour
     // For repeating backgrounds
     private List<SpriteRenderer> backgrounds = new List<SpriteRenderer>();
     private float backgroundSize;
+
+    [Header("Obstacle Movement")]
+    public float[] obstacleSpeedFactors = { 0.5f, 0.7f, 0.8f }; // Percentage of world speed
+    public bool randomizeObstacleSpeed = true; // Whether to randomiz
+    
+    [Header("Obstacle Animation")]
+    public float animationFrameRate = 0.5f; // How fast to swap frames (seconds)
+
+    [Header("Player Animation")]
+    public float playerAnimationFrameRate = 0.1f; // Faster player animation (less seconds between swaps)
+    private ObstacleAnimation playerAnimation;
+
+    [Header("Speed Effects")]
+    public ParticleSystem speedLines;               // Assign a particle system in the inspector
+    public int minGearForSpeedLines = 2;            // Only show speed lines in gear 3 and above (0-based)
+    public Color speedLineColor = Color.white;      // Color of speed lines
+    public float maxSpeedLineRate = 100f;           // Maximum emission rate at top speed
+
 
     // Start is called before the first frame update
     void Start()
@@ -86,9 +107,52 @@ public class GameController : MonoBehaviour
 
         // Start obstacle spawning
         StartCoroutine(SpawnObstacles());
+
+        // Start obstacle animation
+        StartCoroutine(AnimateObstacles());
+
+        //start player animation
+        SetupPlayerAnimation();
+
+        //setup speed lines
+        SetupSpeedLines();
     }
 
-    // Setup repeating background (if using sprite-based backgrounds)
+    void SetupPlayerAnimation()
+    {
+        if (playerCar != null)
+        {
+            // Get or add animation component to player
+            playerAnimation = playerCar.GetComponent<ObstacleAnimation>();
+            if (playerAnimation == null)
+            {
+                playerAnimation = playerCar.AddComponent<ObstacleAnimation>();
+            }
+
+            // Start player animation coroutine
+            StartCoroutine(AnimatePlayer());
+        }
+    }
+
+    IEnumerator AnimatePlayer()
+    {
+        while (true)
+        {
+            if (!isGameOver && !hasWon)
+            {
+                // Animate player regardless of halt state for visual interest
+                if (playerAnimation != null)
+                {
+                    playerAnimation.SwapFrame();
+                }
+            }
+
+            // Use player-specific animation rate (typically faster than obstacles)
+            yield return new WaitForSeconds(playerAnimationFrameRate);
+        }
+    }
+
+    // Setup repeating background
     void SetupRepeatingBackground()
     {
         SpriteRenderer backgroundSprite = roadBackground.GetComponent<SpriteRenderer>();
@@ -114,14 +178,18 @@ public class GameController : MonoBehaviour
     {
         if (isGameOver || hasWon) return;
 
+        if (isGameOver || hasWon) return;
+
         // Always update UI regardless of halt state
         UpdateDistanceText();
 
         // If halted, don't process any movement or input
-        if (isHalted) Debug.Log("Player is currently halted");
         if (isHalted)
+        {
+            // Even when halted, we should update speed lines (to turn them off)
+            UpdateSpeedLines();
             return;
-
+        }
         // From this point on, code only runs when NOT halted
 
         // Handle player movement
@@ -170,18 +238,19 @@ public class GameController : MonoBehaviour
         }
     }
 
-
     // Move all obstacles toward the player
     private void MoveObstacles()
     {
-        // If player is halted, don't move obstacles at all
+        // If player is halted, don't process obstacles
         if (isHalted)
             return;
 
         foreach (Transform obstacle in obstacleParent)
         {
-            // Move obstacle toward player (left)
-            obstacle.position += Vector3.left * worldSpeed * Time.deltaTime;
+            if (obstacle == null) continue;
+
+            // Don't move obstacles at all - they stay where they are
+            // The background movement creates the illusion of passing obstacles
 
             // Remove obstacles that have gone past the player
             if (obstacle.position.x < -despawnDistance)
@@ -190,6 +259,8 @@ public class GameController : MonoBehaviour
             }
         }
     }
+
+
 
     // Scroll the background based on worldSpeed
     private void ScrollBackground()
@@ -282,19 +353,71 @@ public class GameController : MonoBehaviour
             if (obstacles != null && obstacles.Length > 0)
             {
                 GameObject obstaclePrefab = obstacles[Random.Range(0, obstacles.Length)];
+
+                // Position obstacles ahead of the player's view
                 Vector3 spawnPos = new Vector3(spawnDistance, obstacleY, 0f);
 
-                // Instantiate obstacle
-                Instantiate(obstaclePrefab, spawnPos, Quaternion.identity, obstacleParent);
+                // Instantiate obstacle - no movement component needed
+                GameObject newObstacle = Instantiate(obstaclePrefab, spawnPos, Quaternion.identity, obstacleParent);
+
+                // Remove any ObstacleMovement component if it exists
+                ObstacleMovement movement = newObstacle.GetComponent<ObstacleMovement>();
+                if (movement != null)
+                {
+                    Destroy(movement);
+                }
             }
 
-            // Wait before next spawn - adjust based on current speed
-            // Faster car = faster spawn rate to maintain obstacle density
-            float adjustedRate = obstacleSpawnRate * (gearSpeeds[1] / worldSpeed);
-            yield return new WaitForSeconds(Mathf.Clamp(adjustedRate, 0.2f, obstacleSpawnRate * 2));
+            // Calculate spawn interval based on player speed
+            // Map gear speeds to spawn intervals: 0.75s (slowest) to 0.50s (fastest)
+            float minSpawnInterval = 0.50f; // Fastest spawn rate at max speed
+            float maxSpawnInterval = 0.75f; // Slowest spawn rate at min speed
+
+            // Calculate normalized speed (0.0 to 1.0) based on min/max gear speeds
+            float maxSpeed = gearSpeeds[gearSpeeds.Length - 1];
+            float minSpeed = gearSpeeds[0];
+            float normalizedSpeed = Mathf.Clamp01((worldSpeed - minSpeed) / (maxSpeed - minSpeed));
+
+            // Lerp between max and min spawn interval based on normalized speed
+            float spawnInterval = Mathf.Lerp(maxSpawnInterval, minSpawnInterval, normalizedSpeed);
+
+            // Wait before next spawn
+            yield return new WaitForSeconds(spawnInterval);
         }
     }
 
+    IEnumerator AnimateObstacles()
+    {
+        while (true)
+        {
+            if (!isGameOver && !hasWon && !isHalted)
+            {
+                // Find all obstacles and swap their sprites
+                foreach (Transform obstacle in obstacleParent)
+                {
+                    if (obstacle == null) continue;
+
+                    // Get the sprite renderer
+                    SpriteRenderer renderer = obstacle.GetComponent<SpriteRenderer>();
+                    if (renderer == null) continue;
+
+                    // Get the obstacle animation component
+                    ObstacleAnimation animation = obstacle.GetComponent<ObstacleAnimation>();
+                    if (animation == null)
+                    {
+                        // Add animation component if it doesn't exist
+                        animation = obstacle.gameObject.AddComponent<ObstacleAnimation>();
+                    }
+
+                    // Swap to the next frame
+                    animation.SwapFrame();
+                }
+            }
+
+            // Wait before next animation frame swap
+            yield return new WaitForSeconds(animationFrameRate);
+        }
+    }
 
     public void GameOver()
     {
@@ -367,6 +490,86 @@ public class GameController : MonoBehaviour
     {
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
+
+    // Add this to your Start() method after other initializations
+    void SetupSpeedLines()
+    {
+        // Create speed lines if not assigned
+        if (speedLines == null)
+        {
+            // Create a new GameObject for speed lines
+            GameObject speedLinesObj = new GameObject("SpeedLines");
+            speedLinesObj.transform.parent = playerCar.transform;
+            speedLinesObj.transform.localPosition = new Vector3(-1f, 0f, 0f); // Position behind the car
+
+            // Add particle system
+            speedLines = speedLinesObj.AddComponent<ParticleSystem>();
+
+            // Configure particle system
+            var main = speedLines.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.startSpeed = -15f;                 // Particles move left (toward camera)
+            main.startSize = 0.3f;                  // Adjust size to match your game scale
+            main.startLifetime = 0.2f;              // Short lifetime for quick streaks
+            main.startColor = speedLineColor;
+
+            var emission = speedLines.emission;
+            emission.rateOverTime = 0;              // Start with no particles
+
+            var shape = speedLines.shape;
+            shape.shapeType = ParticleSystemShapeType.Rectangle;
+            shape.scale = new Vector3(0.1f, laneWidth * 0.8f, 1f); // Wide vertically, thin horizontally
+
+            var renderer = speedLines.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Stretch;
+            renderer.velocityScale = 0.3f;          // Stretch based on velocity
+            renderer.lengthScale = 2f;              // Make lines longer
+
+            // Set sorting layer to ensure visibility
+            renderer.sortingOrder = 10;
+        }
+
+        // Initially disable speed lines
+        if (speedLines != null)
+        {
+            var emission = speedLines.emission;
+            emission.rateOverTime = 0;
+        }
+    }
+
+    // Add this to your Update() method after updating world speed
+    void UpdateSpeedLines()
+    {
+        if (speedLines != null)
+        {
+            var emission = speedLines.emission;
+
+            if (isHalted || isGameOver || hasWon || currentGear < minGearForSpeedLines)
+            {
+                // Turn off speed lines when halted, game over, or at low gears
+                emission.rateOverTime = 0;
+            }
+            else
+            {
+                // Calculate speed line intensity based on current gear
+                float speedRatio = (float)(currentGear - minGearForSpeedLines) /
+                                   (gearSpeeds.Length - 1 - minGearForSpeedLines);
+                speedRatio = Mathf.Clamp01(speedRatio);
+
+                // Adjust emission rate based on speed
+                emission.rateOverTime = speedRatio * maxSpeedLineRate;
+
+                // Optional: Adjust color intensity with speed
+                var main = speedLines.main;
+                main.startColor = new Color(
+                    speedLineColor.r,
+                    speedLineColor.g,
+                    speedLineColor.b,
+                    speedLineColor.a * speedRatio);
+            }
+        }
+    }
+
 
     public void QuitGame()
     {
