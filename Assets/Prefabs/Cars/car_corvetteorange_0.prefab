@@ -95,7 +95,7 @@ BoxCollider2D:
   m_Enabled: 1
   m_Density: 1
   m_Material: {fileID: 0}
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_UsedByEffector: 0
   m_UsedByComposite: 0
   m_Offset: {x: 0.20569074, y: -0.08533692}
@@ -125,9 +125,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   explosionPrefab: {fileID: 553635678462967271, guid: 32f0b914ae5f31443b39b8c291d7feac,
     type: 3}
-  moveSpeed: 0
+  baseSpeed: 0
   useCustomSpeed: 0
-  customMoveSpeed: 10
+  customMoveSpeed: 5
 --- !u!114 &6875265750246202805
 MonoBehaviour:
   m_ObjectHideFlags: 0

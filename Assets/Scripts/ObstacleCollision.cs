@@ -9,9 +9,10 @@ public class ObstacleCollision : MonoBehaviour
     private bool hasExploded = false;
 
     [Header("Movement")]
-    public float moveSpeed; // This will be set automatically based on 2nd gear
-    public bool useCustomSpeed = false; // Set to true if you want to override the default speed
+    public float baseSpeed; // Base speed set from 2nd gear
+    public bool useCustomSpeed = false; // Set to true if you want to override the default
     public float customMoveSpeed = 10f; // Custom speed value if needed
+    private float currentSpeed; // Current speed that updates with player gear
 
     private GameController gameController;
     private Vector3 moveDirection = Vector3.left; // Moving left (toward player)
@@ -21,51 +22,73 @@ public class ObstacleCollision : MonoBehaviour
         Debug.Log($"ObstacleCollision initialized on {gameObject.name}");
         Debug.Log($"ExplosionPrefab assigned: {explosionPrefab != null}");
 
-        // Find the GameController to get the 2nd gear speed
+        // Find the GameController to get the gear speeds
         gameController = FindObjectOfType<GameController>();
 
         if (gameController != null && !useCustomSpeed)
         {
-            // Get the 2nd gear speed (index 1 in the gearSpeeds array)
+            // Get the 2nd gear speed (index 1) as the base speed
             if (gameController.gearSpeeds.Length > 1)
             {
-                moveSpeed = gameController.gearSpeeds[1]; // Use 2nd gear speed
-                Debug.Log($"Obstacle using 2nd gear speed: {moveSpeed}");
+                baseSpeed = gameController.gearSpeeds[1]; // Use 2nd gear speed as base
+                Debug.Log($"Obstacle using 2nd gear speed as base: {baseSpeed}");
             }
             else
             {
-                moveSpeed = 10f; // Fallback speed if gearSpeeds array is too small
+                baseSpeed = 10f; // Fallback speed if gearSpeeds array is too small
                 Debug.LogWarning("GearSpeeds array not long enough, using default speed");
             }
         }
         else if (useCustomSpeed)
         {
-            moveSpeed = customMoveSpeed;
-            Debug.Log($"Obstacle using custom speed: {moveSpeed}");
+            baseSpeed = customMoveSpeed;
+            Debug.Log($"Obstacle using custom speed: {baseSpeed}");
         }
         else
         {
-            moveSpeed = 10f; // Default speed if GameController not found
+            baseSpeed = 10f; // Default speed if GameController not found
             Debug.LogWarning("GameController not found, using default speed");
         }
-    }
 
-    private void Start()
-    {
-        // Uncomment this line to test explosion at startup
-        // TestExplosion();
+        // Initialize current speed
+        currentSpeed = baseSpeed;
     }
 
     private void Update()
     {
-        // Move the obstacle forward at constant speed regardless of game state
-        // (except when the game is over or won, which will be handled by GameController)
+        // Check if game is over or won
         if (gameController != null && (gameController.IsGameOver() || gameController.HasWon()))
             return;
 
-        transform.position += moveDirection * moveSpeed * Time.deltaTime;
+        // Update obstacle speed based on player's current gear/speed
+        UpdateObstacleSpeed();
+
+        // Move the obstacle at the adjusted speed
+        transform.position += moveDirection * currentSpeed * Time.deltaTime;
     }
 
+    // New method to update obstacle speed based on player's current gear
+    private void UpdateObstacleSpeed()
+    {
+        if (gameController == null || useCustomSpeed)
+            return;
+
+        // Get a scaling factor based on player's current gear vs. gear 2
+        float baseGearSpeed = gameController.gearSpeeds[1]; // 2nd gear speed (index 1)
+        float currentWorldSpeed = gameController.worldSpeed; // Current player speed
+
+        // Calculate scaling factor - how much faster player is going compared to base gear
+        float speedRatio = currentWorldSpeed / baseGearSpeed;
+
+        // Scale obstacle speed, but not 1:1 with player (about 70% of player's speed increase)
+        // This makes higher gears feel more effective while still maintaining challenge
+        currentSpeed = baseSpeed * (0.5f + (speedRatio * 0.5f));
+
+        // Debug
+        //Debug.Log($"Player gear speed: {currentWorldSpeed}, Obstacle speed: {currentSpeed}");
+    }
+
+    // Rest of your existing code...
     // Test function to verify explosion works
     private void TestExplosion()
     {
