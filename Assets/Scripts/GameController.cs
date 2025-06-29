@@ -10,7 +10,8 @@ public class GameController : MonoBehaviour
 {
     [Header("Player Settings")]
     public GameObject playerCar;
-    public float verticalMoveSpeed = 5f; // Vertical movement speed
+    public float verticalMoveSpeed = 5f; // Base vertical movement speed
+    public float verticalSpeedMultiplier = 0.3f; // How much faster each gear makes vertical movement
     public float laneWidth = 8f; // Total width of the road
     public float[] gearSpeeds = { 5f, 10f, 15f, 20f, 25f }; // Speed for each gear
     public float startPosition = -10f; // Starting X position (now just for calculations)
@@ -32,14 +33,28 @@ public class GameController : MonoBehaviour
     public bool IsGameOver() { return isGameOver; }
     public bool HasWon() { return hasWon; }
 
+    [Header("Boost Mechanic")]
+    public GameObject cigarettePackPrefab; // Assign your cigarette pack prefab in inspector
+    public Transform collectibleParent; // Parent for organizing collectibles in hierarchy
+    public float collectibleSpawnChance = 0.15f; // 15% chance to spawn with each obstacle wave
+    public float collectibleSpeed = 0.3f; // Speed factor relative to world speed (slower than obstacles)
+    public float boostSpeed = 35f; // Super speed when boost is active (faster than 5th gear)
+    public float boostDuration = 3f; // How long the boost lasts in seconds
+    public int maxBoostCharges = 3; // Maximum boost charges player can hold
+    private int currentBoostCharges = 0; // Current number of boost charges
+    private bool isBoostActive = false; // Whether boost is currently active
+    private float boostTimer = 0f; // Timer for boost duration
+
     [Header("UI")]
     public TMP_Text gearText;
     public TMP_Text timerText;
     public TMP_Text distanceText;
+    public TMP_Text boostChargesText; // Text to display boost charges
     public GameObject gameOverPanel;
     public GameObject winPanel;
     public GearSpriteDisplay gearSpriteDisplay;
     public GoalProgressBar goalProgressBar;
+    public FlagProgressIndicator flagProgressIndicator; // Add this line
 
     [Header("Leaderboard Management")]
     public LeaderboardCreatorDemo.LeaderboardManager leaderboardManager; // Reference to leaderboard manager
@@ -56,6 +71,7 @@ public class GameController : MonoBehaviour
     private bool isHalted = false;
     public float haltDuration = 1.0f; // How long the player is halted after hitting an obstacle
     public float worldSpeed; // Current world movement speed
+    private float currentVerticalMoveSpeed; // Current calculated vertical movement speed
 
     [Header("Gas Station UI")]
     public TMP_Text currentTimeText; // Text element for displaying current run time
@@ -76,7 +92,7 @@ public class GameController : MonoBehaviour
     [Header("Obstacle Movement")]
     public float[] obstacleSpeedFactors = { 0.5f, 0.7f, 0.8f }; // Percentage of world speed
     public bool randomizeObstacleSpeed = true; // Whether to randomiz
-    
+
     [Header("Obstacle Animation")]
     public float animationFrameRate = 0.5f; // How fast to swap frames (seconds)
 
@@ -87,12 +103,6 @@ public class GameController : MonoBehaviour
     [Header("Lane System")]
     public int numberOfLanes = 5;       // Number of distinct lanes on the road
     public float[] lanePositions;       // Will store Y positions of each lane
-
-    [Header("Speed Effects")]
-    public ParticleSystem speedLines;               // Assign a particle system in the inspector
-    public int minGearForSpeedLines = 2;            // Only show speed lines in gear 3 and above (0-based)
-    public Color speedLineColor = Color.white;      // Color of speed lines
-    public float maxSpeedLineRate = 100f;           // Maximum emission rate at top speed
 
     [Header("Win Scene")]
     public GameObject gasStationPrefab; // Assign your gas station sprite in inspector
@@ -115,16 +125,29 @@ public class GameController : MonoBehaviour
     private Vector3 playerStartPosition; // To store player position for parking animation
     private Vector3 originalCameraPosition; // To store original camera position
 
+    // Helper method to calculate current vertical movement speed based on gear
+    private void UpdateVerticalMoveSpeed()
+    {
+        // Calculate vertical movement speed: base speed + (gear level * multiplier)
+        currentVerticalMoveSpeed = verticalMoveSpeed + (currentGear * verticalSpeedMultiplier);
+
+        Debug.Log($"Gear {currentGear + 1}: Vertical speed = {currentVerticalMoveSpeed:F1}");
+    }
+
     // Helper method to hide gameplay UI elements during win animation
     private void HideGameplayUI()
     {
         // Hide timer text during win animation
         if (timerText != null)
             timerText.gameObject.SetActive(false);
-        
+
         // Hide progress bar during win animation
         if (goalProgressBar != null)
             goalProgressBar.gameObject.SetActive(false);
+
+        // Hide flag progress indicator during win animation
+        if (flagProgressIndicator != null)
+            flagProgressIndicator.gameObject.SetActive(false);
     }
 
     // Helper method to show gameplay UI elements (for restart)
@@ -133,10 +156,14 @@ public class GameController : MonoBehaviour
         // Show timer text during normal gameplay
         if (timerText != null)
             timerText.gameObject.SetActive(true);
-        
+
         // Show progress bar during normal gameplay
         if (goalProgressBar != null)
             goalProgressBar.gameObject.SetActive(true);
+
+        // Show flag progress indicator during normal gameplay
+        if (flagProgressIndicator != null)
+            flagProgressIndicator.gameObject.SetActive(true);
     }
 
     private void UpdateGearText()
@@ -149,6 +176,98 @@ public class GameController : MonoBehaviour
         {
             gearSpriteDisplay.UpdateGearSprite(currentGear);
         }
+
+        // Update vertical movement speed when gear changes
+        UpdateVerticalMoveSpeed();
+    }
+
+    // Update boost charges UI
+    private void UpdateBoostUI()
+    {
+        if (boostChargesText != null)
+        {
+            boostChargesText.text = $"Boost: {currentBoostCharges}/{maxBoostCharges}";
+
+            // Change color based on boost status
+            if (isBoostActive)
+            {
+                boostChargesText.color = Color.yellow; // Yellow during boost
+            }
+            else if (currentBoostCharges > 0)
+            {
+                boostChargesText.color = Color.green; // Green when charges available
+            }
+            else
+            {
+                boostChargesText.color = Color.white; // White when no charges
+            }
+        }
+    }
+
+    // Activate boost mode
+    private void ActivateBoost()
+    {
+        if (currentBoostCharges <= 0 || isBoostActive) return;
+
+        currentBoostCharges--;
+        isBoostActive = true;
+        boostTimer = boostDuration;
+
+        Debug.Log($"Boost activated! Charges remaining: {currentBoostCharges}");
+
+        // Visual effect for player car during boost
+        SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
+        if (playerSprite != null)
+        {
+            // Flash effect during boost
+            playerSprite.DOColor(Color.cyan, 0.2f)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetId("BoostFlash");
+        }
+
+        UpdateBoostUI();
+    }
+
+    // Deactivate boost mode
+    private void DeactivateBoost()
+    {
+        isBoostActive = false;
+        boostTimer = 0f;
+
+        Debug.Log("Boost deactivated");
+
+        // Stop visual effects
+        SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
+        if (playerSprite != null)
+        {
+            DOTween.Kill("BoostFlash");
+            playerSprite.color = Color.white; // Reset to normal color
+        }
+
+        UpdateBoostUI();
+    }
+
+    // Add boost charge (called when collecting cigarette pack)
+    public void AddBoostCharge()
+    {
+        if (currentBoostCharges < maxBoostCharges)
+        {
+            currentBoostCharges++;
+            Debug.Log($"Boost charge collected! Total charges: {currentBoostCharges}");
+            UpdateBoostUI();
+
+            // Visual feedback for collecting boost
+            if (playerCar != null)
+            {
+                playerCar.transform.DOPunchScale(new Vector3(0.2f, 0.2f, 0), 0.3f, 10, 0.5f);
+            }
+        }
+    }
+
+    // Check if player is in boost mode (used by collision detection)
+    public bool IsBoostActive()
+    {
+        return isBoostActive;
     }
 
     private void MoveObstacles()
@@ -179,11 +298,14 @@ public class GameController : MonoBehaviour
             // Calculate base movement speed
             float baseSpeed = gearTwoSpeed * speedFactor;
 
+            // Use boost speed if active, otherwise use current world speed
+            float currentPlayerSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
             // Calculate relative speed between player and obstacle
-            float relativeSpeed = worldSpeed - baseSpeed;
+            float relativeSpeed = currentPlayerSpeed - baseSpeed;
 
             // Special handling for 1st gear - ensure obstacles always move forward
-            if (currentGear == 0 && relativeSpeed <= 0)
+            if (currentGear == 0 && relativeSpeed <= 0 && !isBoostActive)
             {
                 // Force a minimum positive relative speed in 1st gear
                 relativeSpeed = minimumRelativeSpeed;
@@ -196,6 +318,33 @@ public class GameController : MonoBehaviour
             if (obstacle.position.x < -despawnDistance)
             {
                 Destroy(obstacle.gameObject);
+            }
+        }
+    }
+
+    // Move collectibles (cigarette packs)
+    private void MoveCollectibles()
+    {
+        if (isHalted || collectibleParent == null)
+            return;
+
+        foreach (Transform collectible in collectibleParent)
+        {
+            if (collectible == null) continue;
+
+            // Use boost speed if active, otherwise use current world speed
+            float currentPlayerSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
+            // Collectibles move slower than obstacles
+            float collectibleMovementSpeed = currentPlayerSpeed * collectibleSpeed;
+
+            // Move collectible based on its speed
+            collectible.position += Vector3.left * collectibleMovementSpeed * Time.deltaTime;
+
+            // Remove collectibles that have gone past the player
+            if (collectible.position.x < -despawnDistance)
+            {
+                Destroy(collectible.gameObject);
             }
         }
     }
@@ -213,10 +362,13 @@ public class GameController : MonoBehaviour
             // For sprite-based repeating backgrounds
             if (backgrounds.Count > 0)
             {
+                // Use boost speed if active for background scrolling
+                float scrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
                 // Move all background pieces
                 foreach (SpriteRenderer bg in backgrounds)
                 {
-                    bg.transform.position += Vector3.left * worldSpeed * Time.deltaTime * backgroundScrollSpeed;
+                    bg.transform.position += Vector3.left * scrollSpeed * Time.deltaTime * backgroundScrollSpeed;
 
                     // If background piece has moved off-screen to the left, move it to the right
                     if (bg.transform.position.x < -backgroundSize)
@@ -235,8 +387,11 @@ public class GameController : MonoBehaviour
             Renderer renderer = roadBackground.GetComponent<Renderer>();
             if (renderer != null && renderer.material.mainTexture != null)
             {
+                // Use boost speed if active for texture scrolling
+                float scrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
                 // Scroll the texture
-                float offset = Time.time * worldSpeed * backgroundScrollSpeed;
+                float offset = Time.time * scrollSpeed * backgroundScrollSpeed;
                 renderer.material.mainTextureOffset = new Vector2(offset % 1, 0);
             }
         }
@@ -250,6 +405,24 @@ public class GameController : MonoBehaviour
 
         if (obstacleParent == null)
             obstacleParent = new GameObject("Obstacles").transform;
+
+        // Setup collectible parent if not assigned
+        if (collectibleParent == null)
+            collectibleParent = new GameObject("Collectibles").transform;
+
+        if (goalProgressBar != null)
+        {
+            float totalRaceDistance = endPosition - startPosition;
+            goalProgressBar.Initialize(totalRaceDistance);
+        }
+
+        // Initialize flag progress indicator
+        if (flagProgressIndicator != null)
+        {
+            float totalRaceDistance = endPosition - startPosition;
+            flagProgressIndicator.Initialize(totalRaceDistance);
+        }
+
         if (goalProgressBar != null)
         {
             float totalRaceDistance = endPosition - startPosition;
@@ -270,18 +443,19 @@ public class GameController : MonoBehaviour
 
         // Setup UI
         UpdateGearText();
+        UpdateBoostUI(); // Initialize boost UI
         if (bestTimeText != null) bestTimeText.text = ""; // Initialize best time text
         if (currentTimeText != null) currentTimeText.text = ""; // Initialize current time text
-        
+
         // Show gameplay UI elements at start
         ShowGameplayUI();
-        
+
         // Ensure leaderboard is hidden during gameplay
         if (leaderboardManager != null)
         {
             leaderboardManager.HideGasStationLeaderboard();
         }
-        
+
         // Hide end game panels
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (winPanel != null) winPanel.SetActive(false);
@@ -292,17 +466,20 @@ public class GameController : MonoBehaviour
         // Setup lane positions
         SetupLanes();
 
+        // Initialize vertical movement speed
+        UpdateVerticalMoveSpeed();
+
         // Start obstacle spawning
         StartCoroutine(SpawnObstacles());
+
+        // Start collectible spawning
+        StartCoroutine(SpawnCollectibles());
 
         // Start obstacle animation
         StartCoroutine(AnimateObstacles());
 
         //start player animation
         SetupPlayerAnimation();
-
-        //setup speed lines
-        SetupSpeedLines();
     }
 
     void SetupLanes()
@@ -401,22 +578,35 @@ public class GameController : MonoBehaviour
         // If win animation is playing, let the coroutine handle movement
         if (isWinAnimationPlaying || hasWon)
         {
-            UpdateSpeedLines(); // Turn off speed lines during win animation
             return;
         }
 
         // If halted, don't process any movement or input
         if (isHalted)
         {
-            // Even when halted, we should update speed lines (to turn them off)
-            UpdateSpeedLines();
             return;
         }
         // From this point on, code only runs when NOT halted
 
-        // Handle player movement
+        // Handle boost activation with spacebar
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            ActivateBoost();
+        }
+
+        // Update boost timer
+        if (isBoostActive)
+        {
+            boostTimer -= Time.deltaTime;
+            if (boostTimer <= 0f)
+            {
+                DeactivateBoost();
+            }
+        }
+
+        // Handle player movement with gear-based vertical speed
         float verticalInput = Input.GetAxis("Vertical"); // Uses Up/Down arrows or W/S keys
-        float newYPosition = playerCar.transform.position.y + (verticalInput * verticalMoveSpeed * Time.deltaTime);
+        float newYPosition = playerCar.transform.position.y + (verticalInput * currentVerticalMoveSpeed * Time.deltaTime);
 
         // Clamp position to stay within road boundaries
         newYPosition = Mathf.Clamp(newYPosition, minYPosition, maxYPosition);
@@ -439,11 +629,12 @@ public class GameController : MonoBehaviour
             UpdateGearText();
         }
 
-        // Update world speed based on current gear
+        // Update world speed based on current gear (but boost overrides this for movement)
         worldSpeed = gearSpeeds[currentGear];
 
-        // Track virtual distance traveled
-        distanceTraveled += worldSpeed * Time.deltaTime;
+        // Track virtual distance traveled (use boost speed if active)
+        float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
+        distanceTraveled += currentSpeed * Time.deltaTime;
 
         // Update progress bar
         if (goalProgressBar != null)
@@ -451,12 +642,19 @@ public class GameController : MonoBehaviour
             goalProgressBar.UpdateProgress(distanceTraveled);
         }
 
+        // Update flag progress indicator
+        if (flagProgressIndicator != null)
+        {
+            flagProgressIndicator.UpdateProgress(distanceTraveled);
+        }
+
         // Update game timer
         gameTimer += Time.deltaTime;
         UpdateTimerText();
 
-        // Process world movement (obstacles and background)
+        // Process world movement (obstacles, collectibles, and background)
         MoveObstacles();
+        MoveCollectibles();
         ScrollBackground();
 
         // Check if player has virtually reached the goal (gas station)
@@ -465,7 +663,6 @@ public class GameController : MonoBehaviour
             Win();
         }
     }
-
     private void UpdateTimerText()
     {
         if (timerText != null)
@@ -496,17 +693,30 @@ public class GameController : MonoBehaviour
                 continue;
             }
 
-            // Select a random lane for this obstacle
-            int laneIndex = Random.Range(0, numberOfLanes);
-            float obstacleY = lanePositions[laneIndex];
+            // Try to find a valid spawn position
+            Vector3 spawnPos = Vector3.zero;
+            bool validPositionFound = false;
+            int maxAttempts = 10; // Prevent infinite loops
+            int attempts = 0;
 
-            // Random obstacle selection
-            if (obstacles != null && obstacles.Length > 0)
+            while (!validPositionFound && attempts < maxAttempts)
             {
-                GameObject obstaclePrefab = obstacles[Random.Range(0, obstacles.Length)];
+                // Select a random lane for this obstacle
+                int laneIndex = Random.Range(0, numberOfLanes);
+                float obstacleY = lanePositions[laneIndex];
 
                 // Position obstacles ahead of the player's view in the selected lane
-                Vector3 spawnPos = new Vector3(spawnDistance, obstacleY, 0f);
+                spawnPos = new Vector3(spawnDistance, obstacleY, 0f);
+
+                // Check if this position is clear of other obstacles
+                validPositionFound = IsSpawnPositionClear(spawnPos);
+                attempts++;
+            }
+
+            // Only spawn if we found a valid position
+            if (validPositionFound && obstacles != null && obstacles.Length > 0)
+            {
+                GameObject obstaclePrefab = obstacles[Random.Range(0, obstacles.Length)];
 
                 // Instantiate obstacle - no movement component needed
                 GameObject newObstacle = Instantiate(obstaclePrefab, spawnPos, Quaternion.identity, obstacleParent);
@@ -519,21 +729,132 @@ public class GameController : MonoBehaviour
                 }
             }
 
-            // Calculate spawn interval based on player speed
-            float minSpawnInterval = 0.50f; // Fastest spawn rate at max speed
-            float maxSpawnInterval = 0.75f; // Slowest spawn rate at min speed
+            // ENHANCED: More aggressive spawn rate scaling based on gear
+            float minSpawnInterval = 0.35f; // Faster spawn rate at max speed (reduced from 0.50f)
+            float maxSpawnInterval = 0.85f; // Slower spawn rate at min speed (increased from 0.75f)
 
-            // Calculate normalized speed (0.0 to 1.0) based on min/max gear speeds
+            // Get current effective speed (including boost)
+            float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
+            // Create a more aggressive scaling curve using gear index directly
+            float gearRatio = (float)currentGear / (gearSpeeds.Length - 1); // 0.0 to 1.0 based on gear
+
+            // Apply exponential scaling to make higher gears much more intense
+            float exponentialGearRatio = Mathf.Pow(gearRatio, 0.6f); // Makes higher gears more pronounced
+
+            // Also factor in actual speed for boost mode
             float maxSpeed = gearSpeeds[gearSpeeds.Length - 1];
             float minSpeed = gearSpeeds[0];
-            float normalizedSpeed = Mathf.Clamp01((worldSpeed - minSpeed) / (maxSpeed - minSpeed));
+            float speedRatio = Mathf.Clamp01((currentSpeed - minSpeed) / (maxSpeed - minSpeed));
 
-            // Lerp between max and min spawn interval based on normalized speed
-            float spawnInterval = Mathf.Lerp(maxSpawnInterval, minSpawnInterval, normalizedSpeed);
+            // Combine gear ratio and speed ratio, giving more weight to gear
+            float combinedRatio = (exponentialGearRatio * 0.7f) + (speedRatio * 0.3f);
+
+            // Special boost mode - even faster spawning
+            if (isBoostActive)
+            {
+                minSpawnInterval = 0.25f; // Very fast during boost
+                combinedRatio = 1.0f; // Maximum spawn rate
+            }
+
+            // Calculate final spawn interval
+            float spawnInterval = Mathf.Lerp(maxSpawnInterval, minSpawnInterval, combinedRatio);
+
+            // Add slight randomization to make it feel more organic
+            spawnInterval += Random.Range(-0.05f, 0.05f);
+            spawnInterval = Mathf.Max(spawnInterval, 0.2f); // Ensure minimum interval
+
+            // Debug info to see the scaling in action
+            Debug.Log($"Gear {currentGear + 1}: Spawn interval = {spawnInterval:F2}s (Ratio: {combinedRatio:F2})");
 
             // Wait before next spawn
             yield return new WaitForSeconds(spawnInterval);
         }
+    }
+
+    // New coroutine for spawning collectibles (cigarette packs)
+    IEnumerator SpawnCollectibles()
+    {
+        while (!isGameOver && !hasWon)
+        {
+            // Skip spawning if player is halted or won
+            if (isHalted || hasWon || isWinAnimationPlaying)
+            {
+                yield return new WaitForSeconds(0.1f);
+                continue;
+            }
+
+            // Check if we should spawn a collectible this cycle
+            if (Random.Range(0f, 1f) < collectibleSpawnChance && cigarettePackPrefab != null)
+            {
+                // Select a random lane for the collectible
+                int laneIndex = Random.Range(0, numberOfLanes);
+                float collectibleY = lanePositions[laneIndex];
+
+                // Position collectible ahead of the player's view
+                Vector3 spawnPos = new Vector3(spawnDistance + 5f, collectibleY, 0f); // Spawn slightly further than obstacles
+
+                // Check if this position is clear
+                if (IsCollectibleSpawnPositionClear(spawnPos))
+                {
+                    GameObject newCollectible = Instantiate(cigarettePackPrefab, spawnPos, Quaternion.identity, collectibleParent);
+
+                    // Add a tag to identify it as a collectible
+                    newCollectible.tag = "Collectible";
+
+                    Debug.Log("Cigarette pack spawned at: " + spawnPos);
+                }
+            }
+
+            // Wait before checking for next collectible spawn (longer interval than obstacles)
+            yield return new WaitForSeconds(Random.Range(2f, 4f));
+        }
+    }
+
+    // Helper method to check if a spawn position is clear of other obstacles
+    private bool IsSpawnPositionClear(Vector3 spawnPosition)
+    {
+        // Check all existing obstacles
+        foreach (Transform obstacle in obstacleParent)
+        {
+            if (obstacle == null) continue;
+
+            // Calculate distance between spawn position and existing obstacle
+            float distance = Vector3.Distance(spawnPosition, obstacle.position);
+
+            // If too close, position is not clear
+            if (distance < minObstacleSpacing)
+            {
+                return false;
+            }
+        }
+
+        return true; // Position is clear
+    }
+
+    // Helper method to check if a collectible spawn position is clear
+    private bool IsCollectibleSpawnPositionClear(Vector3 spawnPosition)
+    {
+        // Check against obstacles
+        if (!IsSpawnPositionClear(spawnPosition))
+            return false;
+
+        // Check against other collectibles
+        if (collectibleParent != null)
+        {
+            foreach (Transform collectible in collectibleParent)
+            {
+                if (collectible == null) continue;
+
+                float distance = Vector3.Distance(spawnPosition, collectible.position);
+                if (distance < minObstacleSpacing)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
 
@@ -704,16 +1025,6 @@ public class GameController : MonoBehaviour
 
         // Get player sprite renderer for fading out later
         SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
-
-        // Turn on the speed lines with maximum intensity for zoom effect
-        if (speedLines != null)
-        {
-            var emission = speedLines.emission;
-            emission.rateOverTime = maxSpeedLineRate * 2; // More intense than normal max speed
-
-            var main = speedLines.main;
-            main.startColor = speedLineColor; // Full opacity
-        }
 
         timer = 0f;
         bool cameraStopped = false;
@@ -1272,6 +1583,25 @@ public class GameController : MonoBehaviour
     public void OnPlayerHitObstacle(GameObject hitObstacle)
     {
         Debug.Log("Obstacle Hit!");
+
+        // If boost is active, destroy the obstacle without penalty
+        if (isBoostActive)
+        {
+            Debug.Log("Obstacle destroyed by boost!");
+
+            // Destroy the obstacle
+            if (hitObstacle != null)
+            {
+                // Visual effect for destroying obstacle during boost
+                hitObstacle.transform.DOPunchScale(new Vector3(1.5f, 1.5f, 0), 0.2f, 10, 1f)
+                    .OnComplete(() => {
+                        if (hitObstacle != null)
+                            Destroy(hitObstacle);
+                    });
+            }
+            return; // Don't halt or reset gear during boost
+        }
+
         // Don't process collisions while already halted
         if (isHalted) return;
 
@@ -1287,6 +1617,26 @@ public class GameController : MonoBehaviour
 
         // Start the halt coroutine
         StartCoroutine(HaltPlayer());
+    }
+
+    // Call this from collision detection when collecting cigarette pack
+    public void OnPlayerCollectBoost(GameObject collectible)
+    {
+        Debug.Log("Cigarette pack collected!");
+
+        // Add boost charge
+        AddBoostCharge();
+
+        // Destroy the collectible
+        if (collectible != null)
+        {
+            // Visual effect for collecting
+            collectible.transform.DOPunchScale(new Vector3(1.5f, 1.5f, 0), 0.3f, 10, 1f)
+                .OnComplete(() => {
+                    if (collectible != null)
+                        Destroy(collectible);
+                });
+        }
     }
 
     // Add this new coroutine to handle halting the player
@@ -1331,80 +1681,16 @@ public class GameController : MonoBehaviour
     {
         // Show gameplay UI elements on restart
         ShowGameplayUI();
-        
+
         // Ensure leaderboard is completely hidden when restarting
         if (leaderboardManager != null)
         {
             leaderboardManager.HideGasStationLeaderboard();
         }
-        
+
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
-    // Add this to your Start() method after other initializations
-    void SetupSpeedLines()
-    {
-        // Create speed lines if not assigned
-        if (speedLines == null)
-        {
-            // Your existing setup code...
-
-            var renderer = speedLines.GetComponent<ParticleSystemRenderer>();
-            renderer.renderMode = ParticleSystemRenderMode.Stretch;
-            renderer.velocityScale = 0.3f;
-            renderer.lengthScale = 2f;
-            renderer.sortingOrder = 10;
-
-            // Create default material for particles
-            Material particleMaterial = new Material(Shader.Find("Particles/Standard Unlit"));
-            renderer.material = particleMaterial;
-
-            Debug.Log("Speed lines particle system created");
-        }
-
-        // Initially disable speed lines but make sure system is enabled
-        if (speedLines != null)
-        {
-            var emission = speedLines.emission;
-            emission.rateOverTime = 0;
-            speedLines.Play(); // Make sure the system is playing
-            Debug.Log($"Speed lines setup completed. Will show at gear {minGearForSpeedLines + 1} and above");
-        }
-    }
-
-
-    // Add this to your Update() method after updating world speed
-    void UpdateSpeedLines()
-    {
-        if (speedLines != null)
-        {
-            var emission = speedLines.emission;
-
-            if (isHalted || isGameOver || hasWon || currentGear < minGearForSpeedLines)
-            {
-                // Turn off speed lines when halted, game over, or at low gears
-                emission.rateOverTime = 0;
-            }
-            else
-            {
-                // Calculate speed line intensity based on current gear
-                float speedRatio = (float)(currentGear - minGearForSpeedLines) /
-                                   (gearSpeeds.Length - 1 - minGearForSpeedLines);
-                speedRatio = Mathf.Clamp01(speedRatio);
-
-                // Adjust emission rate based on speed
-                emission.rateOverTime = speedRatio * maxSpeedLineRate;
-
-                // Optional: Adjust color intensity with speed
-                var main = speedLines.main;
-                main.startColor = new Color(
-                    speedLineColor.r,
-                    speedLineColor.g,
-                    speedLineColor.b,
-                    speedLineColor.a * speedRatio);
-            }
-        }
-    }
     public int GetCurrentGear()
     {
         return currentGear;
