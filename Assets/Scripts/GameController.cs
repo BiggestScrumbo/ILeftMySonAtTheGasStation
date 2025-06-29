@@ -40,22 +40,27 @@ public class GameController : MonoBehaviour
     public GameObject winPanel;
     public GearSpriteDisplay gearSpriteDisplay;
     public GoalProgressBar goalProgressBar;
+
+    [Header("Leaderboard Management")]
+    public LeaderboardCreatorDemo.LeaderboardManager leaderboardManager; // Reference to leaderboard manager
+
     // Private variables
     private int currentGear = 1; // Start in first gear (0-based index)
-    private float gameTimer = 0f;
+    public float gameTimer = 0f;
     private bool isGameOver = false;
     private bool hasWon = false;
+    private bool timerStopped = false; // New flag to permanently stop the timer
     private float minYPosition; // Bottom boundary
     private float maxYPosition; // Top boundary
-    
     private float distanceTraveled = 0f; // Virtual distance traveled
     private bool isHalted = false;
     public float haltDuration = 1.0f; // How long the player is halted after hitting an obstacle
-
-
     public float worldSpeed; // Current world movement speed
 
-
+    [Header("Gas Station UI")]
+    public TMP_Text currentTimeText; // Text element for displaying current run time
+    public TMP_Text bestTimeText;    // Text element for displaying best time
+    private float bestTime = float.MaxValue; // Store the best time across all runs
 
     [Header("Collision Effects")]
     public bool enableSpinAnimation = true;
@@ -110,6 +115,133 @@ public class GameController : MonoBehaviour
     private Vector3 playerStartPosition; // To store player position for parking animation
     private Vector3 originalCameraPosition; // To store original camera position
 
+    // Helper method to hide gameplay UI elements during win animation
+    private void HideGameplayUI()
+    {
+        // Hide timer text during win animation
+        if (timerText != null)
+            timerText.gameObject.SetActive(false);
+        
+        // Hide progress bar during win animation
+        if (goalProgressBar != null)
+            goalProgressBar.gameObject.SetActive(false);
+    }
+
+    // Helper method to show gameplay UI elements (for restart)
+    private void ShowGameplayUI()
+    {
+        // Show timer text during normal gameplay
+        if (timerText != null)
+            timerText.gameObject.SetActive(true);
+        
+        // Show progress bar during normal gameplay
+        if (goalProgressBar != null)
+            goalProgressBar.gameObject.SetActive(true);
+    }
+
+    private void UpdateGearText()
+    {
+        if (gearText != null)
+            gearText.gameObject.SetActive(false); // Hide the text display
+
+        // Update the gear sprite if available
+        if (gearSpriteDisplay != null)
+        {
+            gearSpriteDisplay.UpdateGearSprite(currentGear);
+        }
+    }
+
+    private void MoveObstacles()
+    {
+        // If player is halted, don't process obstacles
+        if (isHalted)
+            return;
+
+        // Get a reference speed (2nd gear speed) to compare against
+        float gearTwoSpeed = gearSpeeds.Length > 1 ? gearSpeeds[1] : 10f;
+
+        // Special minimum speed for 1st gear to ensure forward movement
+        float minimumRelativeSpeed = 3f;
+
+        foreach (Transform obstacle in obstacleParent)
+        {
+            if (obstacle == null) continue;
+
+            // Get obstacle's speed factor if it has a movement component
+            ObstacleMovement obstacleMovement = obstacle.GetComponent<ObstacleMovement>();
+            float speedFactor = 0.7f; // Default speed factor
+
+            if (obstacleMovement != null)
+            {
+                speedFactor = obstacleMovement.GetCurrentSpeedFactor();
+            }
+
+            // Calculate base movement speed
+            float baseSpeed = gearTwoSpeed * speedFactor;
+
+            // Calculate relative speed between player and obstacle
+            float relativeSpeed = worldSpeed - baseSpeed;
+
+            // Special handling for 1st gear - ensure obstacles always move forward
+            if (currentGear == 0 && relativeSpeed <= 0)
+            {
+                // Force a minimum positive relative speed in 1st gear
+                relativeSpeed = minimumRelativeSpeed;
+            }
+
+            // Move obstacle based on relative speed
+            obstacle.position += Vector3.left * relativeSpeed * Time.deltaTime;
+
+            // Remove obstacles that have gone past the player
+            if (obstacle.position.x < -despawnDistance)
+            {
+                Destroy(obstacle.gameObject);
+            }
+        }
+    }
+
+    private void ScrollBackground()
+    {
+        // If player is halted or if we're in win animation, don't automatically scroll
+        if (isHalted)
+            return;
+
+        // When win animation is playing, the coroutine controls the scroll speed
+
+        if (useRepeatingBackground)
+        {
+            // For sprite-based repeating backgrounds
+            if (backgrounds.Count > 0)
+            {
+                // Move all background pieces
+                foreach (SpriteRenderer bg in backgrounds)
+                {
+                    bg.transform.position += Vector3.left * worldSpeed * Time.deltaTime * backgroundScrollSpeed;
+
+                    // If background piece has moved off-screen to the left, move it to the right
+                    if (bg.transform.position.x < -backgroundSize)
+                    {
+                        bg.transform.position = new Vector3(
+                            bg.transform.position.x + backgroundSize * backgrounds.Count,
+                            bg.transform.position.y,
+                            bg.transform.position.z);
+                    }
+                }
+            }
+        }
+        else if (roadBackground != null)
+        {
+            // For shader/material-based scrolling
+            Renderer renderer = roadBackground.GetComponent<Renderer>();
+            if (renderer != null && renderer.material.mainTexture != null)
+            {
+                // Scroll the texture
+                float offset = Time.time * worldSpeed * backgroundScrollSpeed;
+                renderer.material.mainTextureOffset = new Vector2(offset % 1, 0);
+            }
+        }
+    }
+
     // Start is called before the first frame update
     void Start()
     {
@@ -138,23 +270,24 @@ public class GameController : MonoBehaviour
 
         // Setup UI
         UpdateGearText();
-
+        if (bestTimeText != null) bestTimeText.text = ""; // Initialize best time text
+        if (currentTimeText != null) currentTimeText.text = ""; // Initialize current time text
+        
+        // Show gameplay UI elements at start
+        ShowGameplayUI();
+        
+        // Ensure leaderboard is hidden during gameplay
+        if (leaderboardManager != null)
+        {
+            leaderboardManager.HideGasStationLeaderboard();
+        }
+        
         // Hide end game panels
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (winPanel != null) winPanel.SetActive(false);
 
         // Set initial world speed
         worldSpeed = gearSpeeds[currentGear];
-
-        if (playerCar == null)
-            playerCar = GameObject.FindGameObjectWithTag("Player");
-
-        if (obstacleParent == null)
-            obstacleParent = new GameObject("Obstacles").transform;
-
-        // Calculate lane boundaries
-        minYPosition = -laneWidth / 2;
-        maxYPosition = laneWidth / 2;
 
         // Setup lane positions
         SetupLanes();
@@ -255,10 +388,15 @@ public class GameController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        // Only increment timer if the player hasn't won and timer hasn't been stopped
+        if (!timerStopped)
+            gameTimer += Time.deltaTime;
+
         if (isGameOver || hasWon) return;
 
         // Always update UI regardless of halt state
         UpdateDistanceText();
+        UpdateTimerText();
 
         // If win animation is playing, let the coroutine handle movement
         if (isWinAnimationPlaying || hasWon)
@@ -301,6 +439,9 @@ public class GameController : MonoBehaviour
             UpdateGearText();
         }
 
+        // Update world speed based on current gear
+        worldSpeed = gearSpeeds[currentGear];
+
         // Track virtual distance traveled
         distanceTraveled += worldSpeed * Time.deltaTime;
 
@@ -309,12 +450,6 @@ public class GameController : MonoBehaviour
         {
             goalProgressBar.UpdateProgress(distanceTraveled);
         }
-
-        // Update world speed based on current gear
-        worldSpeed = gearSpeeds[currentGear];
-
-        // Track virtual distance traveled
-        distanceTraveled += worldSpeed * Time.deltaTime;
 
         // Update game timer
         gameTimer += Time.deltaTime;
@@ -331,130 +466,14 @@ public class GameController : MonoBehaviour
         }
     }
 
-    // Move all obstacles toward the player
-    private void MoveObstacles()
-    {
-        // If player is halted, don't process obstacles
-        if (isHalted)
-            return;
-
-        // Get a reference speed (2nd gear speed) to compare against
-        float gearTwoSpeed = gearSpeeds.Length > 1 ? gearSpeeds[1] : 10f;
-
-        // Special minimum speed for 1st gear to ensure forward movement
-        float minimumRelativeSpeed = 3f;
-
-        foreach (Transform obstacle in obstacleParent)
-        {
-            if (obstacle == null) continue;
-
-            // Get obstacle's speed factor if it has a movement component
-            ObstacleMovement obstacleMovement = obstacle.GetComponent<ObstacleMovement>();
-            float speedFactor = 0.7f; // Default speed factor
-
-            if (obstacleMovement != null)
-            {
-                // To this:
-                speedFactor = obstacleMovement.GetCurrentSpeedFactor();
-            }
-
-            // Calculate base movement speed
-            float baseSpeed = gearTwoSpeed * speedFactor;
-
-            // Calculate relative speed between player and obstacle
-            float relativeSpeed = worldSpeed - baseSpeed;
-
-            // Special handling for 1st gear - ensure obstacles always move forward
-            if (currentGear == 0 && relativeSpeed <= 0)
-            {
-                // Force a minimum positive relative speed in 1st gear
-                relativeSpeed = minimumRelativeSpeed;
-            }
-
-            // Move obstacle based on relative speed
-            obstacle.position += Vector3.left * relativeSpeed * Time.deltaTime;
-
-            // Remove obstacles that have gone past the player
-            if (obstacle.position.x < -despawnDistance)
-            {
-                Destroy(obstacle.gameObject);
-            }
-        }
-    }
-
-
-
-
-    // Scroll the background based on worldSpeed
-    private void ScrollBackground()
-    {
-        // If player is halted or if we're in win animation, don't automatically scroll
-        if (isHalted)
-            return;
-
-        // When win animation is playing, the coroutine controls the scroll speed
-
-        if (useRepeatingBackground)
-        {
-            // For sprite-based repeating backgrounds
-            if (backgrounds.Count > 0)
-            {
-                // Move all background pieces
-                foreach (SpriteRenderer bg in backgrounds)
-                {
-                    bg.transform.position += Vector3.left * worldSpeed * Time.deltaTime * backgroundScrollSpeed;
-
-                    // If background piece has moved off-screen to the left, move it to the right
-                    if (bg.transform.position.x < -backgroundSize)
-                    {
-                        bg.transform.position = new Vector3(
-                            bg.transform.position.x + backgroundSize * backgrounds.Count,
-                            bg.transform.position.y,
-                            bg.transform.position.z);
-                    }
-                }
-            }
-        }
-        else if (roadBackground != null)
-        {
-            // For shader/material-based scrolling
-            Renderer renderer = roadBackground.GetComponent<Renderer>();
-            if (renderer != null && renderer.material.mainTexture != null)
-            {
-                // Scroll the texture
-                float offset = Time.time * worldSpeed * backgroundScrollSpeed;
-                renderer.material.mainTextureOffset = new Vector2(offset % 1, 0);
-            }
-        }
-    }
-
-
-
-
-
-    private void UpdateGearText()
-    {
-        if (gearText != null)
-            gearText.gameObject.SetActive(false); // Hide the text display
-
-        // Update the gear sprite if available
-        if (gearSpriteDisplay != null)
-        {
-            gearSpriteDisplay.UpdateGearSprite(currentGear);
-        }
-    }
-
     private void UpdateTimerText()
     {
         if (timerText != null)
         {
-            string timerDisplay = isHalted ? gameTimer.ToString() : gameTimer.ToString("F2");
-            timerText.text = timerDisplay;
+            // Always show timer with 2 decimal places
+            timerText.text = gameTimer.ToString("F2");
         }
     }
-
-
-
 
     private void UpdateDistanceText()
     {
@@ -561,11 +580,14 @@ public class GameController : MonoBehaviour
 
     private void Win()
     {
-        hasWon = true;
+        timerStopped = true; // Stop the timer immediately when goal is reached
+        hasWon = true; // Set hasWon immediately so timer stops at the exact moment
+
+        // Hide gameplay UI elements when win animation starts
+        HideGameplayUI();
 
         // Start the win animation sequence
         StartCoroutine(PlayWinScene());
-
     }
 
     private void DisablePlayerCollision()
@@ -589,7 +611,6 @@ public class GameController : MonoBehaviour
 
     IEnumerator PlayWinScene()
     {
-
         isWinAnimationPlaying = true;
         isCameraFixedAtGasStation = false; // Reset camera control flag at start
 
@@ -603,7 +624,6 @@ public class GameController : MonoBehaviour
         playerStartPosition = playerCar.transform.position;
         originalCameraPosition = Camera.main.transform.position;
         float startGearSpeed = worldSpeed;
-
 
         // PHASE 1: Initial drive forward while background continues looping
         float driveDuration = forwardDriveDistance / forwardDriveSpeed;
@@ -767,7 +787,7 @@ public class GameController : MonoBehaviour
         // PHASE 4: Slow down the scrolling to a stop
         Debug.Log("Win Phase 4: Slowing background to a stop");
 
-        float slowdownDuration = 1.0f;
+        float slowdownDuration = .5f;
         timer = 0f;
 
         while (timer < slowdownDuration)
@@ -799,7 +819,7 @@ public class GameController : MonoBehaviour
         {
             leftRoad = Instantiate(roadBackground, compositeBackground.transform);
             leftRoad.name = "LeftRoadSection";
-            float leftRoadX = -roadSectionWidth / 2 - 2f; // Position left of center with small overlap
+            float leftRoadX = -roadSectionWidth / 2 - 9.5f; // Position left of center with small overlap
             leftRoad.transform.position = new Vector3(Camera.main.transform.position.x + leftRoadX, 0, 0);
 
             // Make road initially transparent
@@ -1120,6 +1140,32 @@ public class GameController : MonoBehaviour
         // Wait a moment before showing win panel
         yield return new WaitForSeconds(0.5f);
 
+        // Update and show time texts in the gas station prefab if they exist
+        if (currentTimeText != null)
+        {
+            // Format time with 2 decimal places
+            currentTimeText.text = gameTimer.ToString("F2");
+            currentTimeText.gameObject.SetActive(true);
+
+            // Check if this is a new best time
+            if (gameTimer < bestTime)
+            {
+                bestTime = gameTimer;
+            }
+        }
+
+        if (bestTimeText != null)
+        {
+            bestTimeText.text = bestTime.ToString("F2");
+            bestTimeText.gameObject.SetActive(true);
+        }
+
+        // Show the leaderboard after the win animation completes
+        if (leaderboardManager != null)
+        {
+            leaderboardManager.ShowGasStationLeaderboard();
+        }
+
         // Display win panel at the end of the animation
         if (winPanel != null)
         {
@@ -1283,6 +1329,15 @@ public class GameController : MonoBehaviour
     // UI button functions
     public void RestartGame()
     {
+        // Show gameplay UI elements on restart
+        ShowGameplayUI();
+        
+        // Ensure leaderboard is completely hidden when restarting
+        if (leaderboardManager != null)
+        {
+            leaderboardManager.HideGasStationLeaderboard();
+        }
+        
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
@@ -1361,7 +1416,7 @@ public class GameController : MonoBehaviour
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
-                        Application.Quit();
+        Application.Quit();
 #endif
     }
 }
