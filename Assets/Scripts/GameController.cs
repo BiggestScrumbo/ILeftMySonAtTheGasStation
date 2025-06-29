@@ -104,6 +104,12 @@ public class GameController : MonoBehaviour
     public int numberOfLanes = 5;       // Number of distinct lanes on the road
     public float[] lanePositions;       // Will store Y positions of each lane
 
+    [Header("Set Dressing")]
+    public TrafficLightOverlay trafficLightOverlay; // Add this line
+
+    // Make distanceTraveled accessible to TrafficLightOverlay
+    public float DistanceTraveled => distanceTraveled;
+
     [Header("Win Scene")]
     public GameObject gasStationPrefab; // Assign your gas station sprite in inspector
     public GameObject gasStationBackgroundPrefab; // Gas station background prefab
@@ -1686,6 +1692,12 @@ public class GameController : MonoBehaviour
         if (leaderboardManager != null)
         {
             leaderboardManager.HideGasStationLeaderboard();
+        }
+
+        // Reset traffic light spawner
+        if (trafficLightOverlay != null)
+        {
+            trafficLightOverlay.ResetSpawner();
         }
 
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
