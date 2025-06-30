@@ -20,6 +20,7 @@ public class GameController : MonoBehaviour
     [Header("Background")]
     public GameObject roadBackground; // Assign your repeating road background
     public float backgroundScrollSpeed = 0.05f; // Multiplier for background scrolling
+    public float[] normalModeBackgroundMultipliers = { 1f, 1.1f, 1.2f, 1.4f, 1.6f }; // Gear-based multipliers for normal mode
     public bool useRepeatingBackground = true; // Set to false if using a tileable renderer
 
     [Header("Gameplay")]
@@ -77,6 +78,12 @@ public class GameController : MonoBehaviour
     public TMP_Text currentTimeText; // Text element for displaying current run time
     public TMP_Text bestTimeText;    // Text element for displaying best time
     private float bestTime = float.MaxValue; // Store the best time across all runs
+
+    [Header("Speed System - Inverse World Speed")]
+    public float[] worldSpeedByGear = { 15f, 12f, 9f, 6f, 3f }; // Decreases with higher gears
+    public float[] backgroundSpeedMultipliers = { 1f, 1.3f, 1.7f, 2.2f, 2.8f }; // Your original values
+    public float backgroundIntensity = 0.5f; // Global multiplier to tone down the effect (0.5 = 50% intensity)
+    public bool useInverseSpeedSystem = true; // Toggle to enable/disable the new system
 
     [Header("Collision Effects")]
     public bool enableSpinAnimation = true;
@@ -138,14 +145,27 @@ public class GameController : MonoBehaviour
     private Vector3 originalCameraPosition; // To store original camera position
 
     // Helper method to calculate current vertical movement speed based on gear
+    // Helper method to calculate current vertical movement speed based on gear
     private void UpdateVerticalMoveSpeed()
     {
         // Calculate vertical movement speed: base speed + (gear level * multiplier)
         currentVerticalMoveSpeed = verticalMoveSpeed + (currentGear * verticalSpeedMultiplier);
 
-        Debug.Log($"Gear {currentGear + 1}: Vertical speed = {currentVerticalMoveSpeed:F1}");
+        // Enhanced debug info
+        if (useInverseSpeedSystem)
+        {
+            Debug.Log($"Gear {currentGear + 1}: Vertical speed = {currentVerticalMoveSpeed:F1}, " +
+                      $"World speed = {worldSpeedByGear[currentGear]:F1}, " +
+                      $"BG multiplier = {backgroundSpeedMultipliers[currentGear]:F1}x");
+        }
+        else
+        {
+            Debug.Log($"Gear {currentGear + 1}: Vertical speed = {currentVerticalMoveSpeed:F1}, " +
+                      $"World speed = {gearSpeeds[currentGear]:F1} (classic mode)");
+        }
     }
 
+    // Helper method to hide gameplay UI elements during win animation
     // Helper method to hide gameplay UI elements during win animation
     private void HideGameplayUI()
     {
@@ -160,6 +180,10 @@ public class GameController : MonoBehaviour
         // Hide flag progress indicator during win animation
         if (flagProgressIndicator != null)
             flagProgressIndicator.gameObject.SetActive(false);
+
+        // Hide boost charges text during win animation
+        if (boostChargesText != null)
+            boostChargesText.gameObject.SetActive(false);
     }
 
     // Helper method to show gameplay UI elements (for restart)
@@ -176,6 +200,10 @@ public class GameController : MonoBehaviour
         // Show flag progress indicator during normal gameplay
         if (flagProgressIndicator != null)
             flagProgressIndicator.gameObject.SetActive(true);
+
+        // Show boost charges text during normal gameplay
+        if (boostChargesText != null)
+            boostChargesText.gameObject.SetActive(true);
     }
 
     private void UpdateGearText()
@@ -372,20 +400,38 @@ public class GameController : MonoBehaviour
         if (isHalted)
             return;
 
-        // When win animation is playing, the coroutine controls the scroll speed
+        // Calculate effective scroll speed
+        float baseScrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
+        // Apply gear-based multiplier based on which system is active
+        float scrollMultiplier = backgroundScrollSpeed;
+
+        if (useInverseSpeedSystem)
+        {
+            // Calculate the gear effect, then scale it by intensity
+            float gearEffect = backgroundSpeedMultipliers[currentGear] - 1f; // Get the bonus part (above 1.0)
+            float scaledGearEffect = gearEffect * backgroundIntensity; // Scale the bonus
+            float finalMultiplier = 1f + scaledGearEffect; // Add back to base 1.0
+            scrollMultiplier *= finalMultiplier;
+        }
+        else
+        {
+            // Normal system: use gear-based multipliers
+            if (currentGear < normalModeBackgroundMultipliers.Length)
+            {
+                scrollMultiplier *= normalModeBackgroundMultipliers[currentGear];
+            }
+        }
 
         if (useRepeatingBackground)
         {
             // For sprite-based repeating backgrounds
             if (backgrounds.Count > 0)
             {
-                // Use boost speed if active for background scrolling
-                float scrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
-
                 // Move all background pieces
                 foreach (SpriteRenderer bg in backgrounds)
                 {
-                    bg.transform.position += Vector3.left * scrollSpeed * Time.deltaTime * backgroundScrollSpeed;
+                    bg.transform.position += Vector3.left * baseScrollSpeed * Time.deltaTime * scrollMultiplier;
 
                     // If background piece has moved off-screen to the left, move it to the right
                     if (bg.transform.position.x < -backgroundSize)
@@ -404,11 +450,8 @@ public class GameController : MonoBehaviour
             Renderer renderer = roadBackground.GetComponent<Renderer>();
             if (renderer != null && renderer.material.mainTexture != null)
             {
-                // Use boost speed if active for texture scrolling
-                float scrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
-
                 // Scroll the texture
-                float offset = Time.time * scrollSpeed * backgroundScrollSpeed;
+                float offset = Time.time * baseScrollSpeed * scrollMultiplier;
                 renderer.material.mainTextureOffset = new Vector2(offset % 1, 0);
             }
         }
@@ -484,8 +527,34 @@ public class GameController : MonoBehaviour
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (winPanel != null) winPanel.SetActive(false);
 
-        // Set initial world speed
-        worldSpeed = gearSpeeds[currentGear];
+        if (useInverseSpeedSystem)
+        {
+            // Ensure arrays are properly sized
+            if (worldSpeedByGear.Length != gearSpeeds.Length)
+            {
+                Debug.LogWarning("worldSpeedByGear array size doesn't match gearSpeeds array size!");
+            }
+            if (backgroundSpeedMultipliers.Length != gearSpeeds.Length)
+            {
+                Debug.LogWarning("backgroundSpeedMultipliers array size doesn't match gearSpeeds array size!");
+            }
+
+            worldSpeed = worldSpeedByGear[currentGear];
+            Debug.Log("Inverse speed system enabled!");
+        }
+        else
+        {
+            worldSpeed = gearSpeeds[currentGear];
+            Debug.Log("Classic speed system enabled!");
+        }
+        if (useInverseSpeedSystem)
+        {
+            worldSpeed = worldSpeedByGear[currentGear];
+        }
+        else
+        {
+            worldSpeed = gearSpeeds[currentGear]; // Keep original behavior as fallback
+        }
 
         // Setup lane positions
         SetupLanes();
@@ -504,6 +573,8 @@ public class GameController : MonoBehaviour
 
         //start player animation
         SetupPlayerAnimation();
+
+        LoadBestTime();
     }
 
     // ADDED: New method to hide all win screen elements at scene start
@@ -677,7 +748,14 @@ public class GameController : MonoBehaviour
         }
 
         // Update world speed based on current gear (but boost overrides this for movement)
-        worldSpeed = gearSpeeds[currentGear];
+        if (useInverseSpeedSystem)
+        {
+            worldSpeed = worldSpeedByGear[currentGear];
+        }
+        else
+        {
+            worldSpeed = gearSpeeds[currentGear];
+        }
 
         // Track virtual distance traveled (use boost speed if active)
         float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
@@ -1012,6 +1090,13 @@ public class GameController : MonoBehaviour
     {
         timerStopped = true; // Stop the timer immediately when goal is reached
         hasWon = true; // Set hasWon immediately so timer stops at the exact moment
+
+        // Deactivate boost if it's currently active
+        if (isBoostActive)
+        {
+            DeactivateBoost();
+            Debug.Log("Boost deactivated due to winning");
+        }
 
         if (MusicController.Instance != null)
         {
@@ -1566,7 +1651,6 @@ public class GameController : MonoBehaviour
         // Wait a moment before showing win panel
         yield return new WaitForSeconds(0.5f);
 
-        // MODIFIED: Only show time texts and leaderboard after win animation completes
         if (currentTimeText != null)
         {
             // Format time with 2 decimal places
@@ -1577,7 +1661,15 @@ public class GameController : MonoBehaviour
             if (gameTimer < bestTime)
             {
                 bestTime = gameTimer;
+                SaveBestTime(); // Save the new best time
+                Debug.Log($"New best time achieved: {bestTime:F2}");
             }
+        }
+
+        if (bestTimeText != null)
+        {
+            bestTimeText.text = bestTime.ToString("F2");
+            bestTimeText.gameObject.SetActive(true); // Only activate after animation
         }
 
         if (bestTimeText != null)
@@ -1602,8 +1694,26 @@ public class GameController : MonoBehaviour
     }
 
     // Helper method to manually scroll background during win animation
+    // Helper method to manually scroll background during win animation
     private void ScrollBackgroundManually(float scrollSpeed)
     {
+        // Apply gear-based multiplier based on which system is active
+        float finalScrollSpeed = scrollSpeed;
+
+        if (useInverseSpeedSystem && currentGear < backgroundSpeedMultipliers.Length)
+        {
+            // Apply the same intensity scaling as in ScrollBackground()
+            float gearEffect = backgroundSpeedMultipliers[currentGear] - 1f;
+            float scaledGearEffect = gearEffect * backgroundIntensity;
+            float finalMultiplier = 1f + scaledGearEffect;
+            finalScrollSpeed *= finalMultiplier;
+        }
+        else if (!useInverseSpeedSystem && currentGear < normalModeBackgroundMultipliers.Length)
+        {
+            // Normal system: apply gear-based multipliers
+            finalScrollSpeed *= normalModeBackgroundMultipliers[currentGear];
+        }
+
         if (useRepeatingBackground)
         {
             // For sprite-based repeating backgrounds
@@ -1614,7 +1724,7 @@ public class GameController : MonoBehaviour
                 {
                     if (bg == null) continue;
 
-                    bg.transform.position += Vector3.left * scrollSpeed * Time.deltaTime;
+                    bg.transform.position += Vector3.left * finalScrollSpeed * Time.deltaTime;
 
                     // If background piece has moved off-screen to the left, move it to the right
                     if (bg.transform.position.x < -backgroundSize)
@@ -1637,7 +1747,7 @@ public class GameController : MonoBehaviour
                 Vector2 currentOffset = renderer.material.mainTextureOffset;
 
                 // Add to the X offset
-                float newOffset = currentOffset.x + scrollSpeed * Time.deltaTime;
+                float newOffset = currentOffset.x + finalScrollSpeed * Time.deltaTime;
 
                 // Set the new offset, keeping it in the 0-1 range
                 renderer.material.mainTextureOffset = new Vector2(newOffset % 1, currentOffset.y);
@@ -1842,6 +1952,21 @@ public class GameController : MonoBehaviour
     public int GetCurrentGear()
     {
         return currentGear;
+    }
+
+    private void SaveBestTime()
+    {
+        PlayerPrefs.SetFloat("BestTime", bestTime);
+        PlayerPrefs.Save(); // Force save to disk
+        Debug.Log($"Best time saved: {bestTime:F2}");
+    }
+
+    // Load best time from persistent storage
+    private void LoadBestTime()
+    {
+        // Load best time, defaulting to float.MaxValue if no saved time exists
+        bestTime = PlayerPrefs.GetFloat("BestTime", float.MaxValue);
+        Debug.Log($"Best time loaded: {bestTime:F2}");
     }
 
 
