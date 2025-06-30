@@ -82,7 +82,7 @@ public class ObstacleCollision : MonoBehaviour
 
         // Scale obstacle speed, but not 1:1 with player (about 70% of player's speed increase)
         // This makes higher gears feel more effective while still maintaining challenge
-        currentSpeed = baseSpeed * (0.5f + (speedRatio * 0.5f));
+        currentSpeed = baseSpeed * (.5f + (speedRatio * .5f));
 
         // Debug
         //Debug.Log($"Player gear speed: {currentWorldSpeed}, Obstacle speed: {currentSpeed}");

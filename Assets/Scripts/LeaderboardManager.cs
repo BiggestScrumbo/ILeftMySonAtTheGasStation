@@ -90,7 +90,7 @@ namespace LeaderboardCreatorDemo
             Debug.Log("Static leaderboard components shown after win animation");
         }
 
-        private void LoadEntries()
+        public void LoadEntries()
         {
             // Only load entries if leaderboard should be visible
             if (!isLeaderboardVisible)

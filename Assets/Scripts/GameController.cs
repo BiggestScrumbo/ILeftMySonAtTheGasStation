@@ -19,7 +19,7 @@ public class GameController : MonoBehaviour
 
     [Header("Background")]
     public GameObject roadBackground; // Assign your repeating road background
-    public float backgroundScrollSpeed = 0.1f; // Multiplier for background scrolling
+    public float backgroundScrollSpeed = 0.05f; // Multiplier for background scrolling
     public bool useRepeatingBackground = true; // Set to false if using a tileable renderer
 
     [Header("Gameplay")]
@@ -88,6 +88,12 @@ public class GameController : MonoBehaviour
     // For repeating backgrounds
     private List<SpriteRenderer> backgrounds = new List<SpriteRenderer>();
     private float backgroundSize;
+
+    [Header("Invulnerability System")]
+    public float invulnerabilityDuration = 0.5f; // How long the player is invulnerable after getting hit
+    public float flashFrequency = 0.1f; // How fast the player flashes during invulnerability
+    private bool isInvulnerable = false; // Whether the player is currently invulnerable
+    private float invulnerabilityTimer = 0f; // Timer for invulnerability duration
 
     [Header("Obstacle Movement")]
     public float[] obstacleSpeedFactors = { 0.5f, 0.7f, 0.8f }; // Percentage of world speed
@@ -247,7 +253,12 @@ public class GameController : MonoBehaviour
         if (playerSprite != null)
         {
             DOTween.Kill("BoostFlash");
-            playerSprite.color = Color.white; // Reset to normal color
+
+            // Only reset to white if not currently invulnerable (to avoid overriding invulnerability flashing)
+            if (!isInvulnerable)
+            {
+                playerSprite.color = Color.white; // Reset to normal color
+            }
         }
 
         UpdateBoostUI();
@@ -447,11 +458,18 @@ public class GameController : MonoBehaviour
             SetupRepeatingBackground();
         }
 
+        // Start gameplay music
+        if (MusicController.Instance != null)
+        {
+            MusicController.Instance.PlayGameplayMusic();
+        }
+
         // Setup UI
         UpdateGearText();
         UpdateBoostUI(); // Initialize boost UI
-        if (bestTimeText != null) bestTimeText.text = ""; // Initialize best time text
-        if (currentTimeText != null) currentTimeText.text = ""; // Initialize current time text
+
+        // ADDED: Ensure win screen elements are properly hidden at scene start
+        HideWinScreenElements();
 
         // Show gameplay UI elements at start
         ShowGameplayUI();
@@ -486,6 +504,29 @@ public class GameController : MonoBehaviour
 
         //start player animation
         SetupPlayerAnimation();
+    }
+
+    // ADDED: New method to hide all win screen elements at scene start
+    private void HideWinScreenElements()
+    {
+        // Hide gas station time display texts (these are shown during win animation)
+        if (currentTimeText != null)
+            currentTimeText.gameObject.SetActive(false);
+
+        if (bestTimeText != null)
+            bestTimeText.gameObject.SetActive(false);
+
+        // Ensure win panel is hidden
+        if (winPanel != null)
+            winPanel.SetActive(false);
+
+        // Make sure leaderboard is hidden
+        if (leaderboardManager != null)
+        {
+            leaderboardManager.HideGasStationLeaderboard();
+        }
+
+        Debug.Log("Win screen elements hidden at scene start");
     }
 
     void SetupLanes()
@@ -668,6 +709,9 @@ public class GameController : MonoBehaviour
         {
             Win();
         }
+
+        // Update invulnerability system
+        UpdateInvulnerability();
     }
     private void UpdateTimerText()
     {
@@ -863,7 +907,66 @@ public class GameController : MonoBehaviour
         return true;
     }
 
+    // Update invulnerability system
+    private void UpdateInvulnerability()
+    {
+        if (isInvulnerable)
+        {
+            invulnerabilityTimer -= Time.deltaTime;
 
+            // Handle flashing effect during invulnerability
+            SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
+            if (playerSprite != null)
+            {
+                // Calculate flash based on time
+                float flashPhase = Mathf.Sin(invulnerabilityTimer / flashFrequency * Mathf.PI * 2);
+                float alpha = Mathf.Lerp(0.3f, 1.0f, (flashPhase + 1) * 0.5f);
+
+                Color currentColor = playerSprite.color;
+                currentColor.a = alpha;
+                playerSprite.color = currentColor;
+            }
+
+            // End invulnerability when timer expires
+            if (invulnerabilityTimer <= 0f)
+            {
+                EndInvulnerability();
+            }
+        }
+    }
+
+    // Start invulnerability period
+    private void StartInvulnerability()
+    {
+        isInvulnerable = true;
+        invulnerabilityTimer = invulnerabilityDuration;
+
+        Debug.Log($"Invulnerability started for {invulnerabilityDuration} seconds");
+    }
+
+    // End invulnerability period
+    private void EndInvulnerability()
+    {
+        isInvulnerable = false;
+        invulnerabilityTimer = 0f;
+
+        // Reset sprite to normal appearance
+        SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
+        if (playerSprite != null)
+        {
+            Color currentColor = playerSprite.color;
+            currentColor.a = 1.0f; // Full opacity
+            playerSprite.color = currentColor;
+        }
+
+        Debug.Log("Invulnerability ended");
+    }
+
+    // Check if player is currently invulnerable
+    public bool IsInvulnerable()
+    {
+        return isInvulnerable;
+    }
     IEnumerator AnimateObstacles()
     {
         while (true)
@@ -909,6 +1012,12 @@ public class GameController : MonoBehaviour
     {
         timerStopped = true; // Stop the timer immediately when goal is reached
         hasWon = true; // Set hasWon immediately so timer stops at the exact moment
+
+        if (MusicController.Instance != null)
+        {
+            MusicController.Instance.FadeToWinMusic();
+            MusicController.Instance.PlayWinSFX();
+        }
 
         // Hide gameplay UI elements when win animation starts
         HideGameplayUI();
@@ -1457,12 +1566,12 @@ public class GameController : MonoBehaviour
         // Wait a moment before showing win panel
         yield return new WaitForSeconds(0.5f);
 
-        // Update and show time texts in the gas station prefab if they exist
+        // MODIFIED: Only show time texts and leaderboard after win animation completes
         if (currentTimeText != null)
         {
             // Format time with 2 decimal places
             currentTimeText.text = gameTimer.ToString("F2");
-            currentTimeText.gameObject.SetActive(true);
+            currentTimeText.gameObject.SetActive(true); // Only activate after animation
 
             // Check if this is a new best time
             if (gameTimer < bestTime)
@@ -1474,21 +1583,20 @@ public class GameController : MonoBehaviour
         if (bestTimeText != null)
         {
             bestTimeText.text = bestTime.ToString("F2");
-            bestTimeText.gameObject.SetActive(true);
+            bestTimeText.gameObject.SetActive(true); // Only activate after animation
         }
 
-        // Show the leaderboard after the win animation completes
+        // MODIFIED: Show the leaderboard only after the win animation completes
         if (leaderboardManager != null)
         {
             leaderboardManager.ShowGasStationLeaderboard();
         }
 
-        // Display win panel at the end of the animation
+        // MODIFIED: Display win panel only at the end of the animation
         if (winPanel != null)
         {
             winPanel.SetActive(true);
         }
-
         isWinAnimationPlaying = false;
         hasWon = true; // Now set it back to true when we're done
     }
@@ -1608,14 +1716,17 @@ public class GameController : MonoBehaviour
             return; // Don't halt or reset gear during boost
         }
 
-        // Don't process collisions while already halted
-        if (isHalted) return;
+        // Don't process collisions while already halted OR invulnerable
+        if (isHalted || isInvulnerable) return;
 
         // Destroy the obstacle that was hit
         if (hitObstacle != null)
         {
             Destroy(hitObstacle);
         }
+
+        // Start invulnerability period
+        StartInvulnerability();
 
         // Reset gear to 1 (0-based index)
         currentGear = 0;
@@ -1624,7 +1735,6 @@ public class GameController : MonoBehaviour
         // Start the halt coroutine
         StartCoroutine(HaltPlayer());
     }
-
     // Call this from collision detection when collecting cigarette pack
     public void OnPlayerCollectBoost(GameObject collectible)
     {
@@ -1680,6 +1790,32 @@ public class GameController : MonoBehaviour
 
         // Resume movement
         isHalted = false;
+    }
+
+    // Add these public methods to your GameController class:
+
+    // Get current boost charges (for UI display)
+    public int GetBoostCharges()
+    {
+        return currentBoostCharges;
+    }
+
+    // Get max boost charges (for UI display)
+    public int GetMaxBoostCharges()
+    {
+        return maxBoostCharges;
+    }
+
+    // Get remaining boost time (for UI meter)
+    public float GetBoostTimeRemaining()
+    {
+        return isBoostActive ? boostTimer : 0f;
+    }
+
+    // Get total boost duration (for UI meter)
+    public float GetBoostDuration()
+    {
+        return boostDuration;
     }
 
     // UI button functions
