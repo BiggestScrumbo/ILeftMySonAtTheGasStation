@@ -102,6 +102,17 @@ public class GameController : MonoBehaviour
     private bool isInvulnerable = false; // Whether the player is currently invulnerable
     private float invulnerabilityTimer = 0f; // Timer for invulnerability duration
 
+    [Header("Obstacle Set System")]
+    public GameObject[] handcraftedObstacleSets; // Array of pre-assembled obstacle set prefabs
+    public float obstacleSetInterval = 100f; // Distance between handcrafted sets (100m)
+    public float obstacleSetSpawnDistance = 30f; // How far ahead to spawn obstacle sets
+    public bool useObstacleSets = true; // Toggle the alternating system on/off
+
+    // Private variables for tracking obstacle sets
+    private float lastObstacleSetDistance = 0f; // Track when we last spawned a set
+    private bool isObstacleSetActive = false; // Whether we're currently in an obstacle set phase
+    private GameObject currentObstacleSet = null; // Reference to the active obstacle set
+
     [Header("Obstacle Movement")]
     public float[] obstacleSpeedFactors = { 0.5f, 0.7f, 0.8f }; // Percentage of world speed
     public bool randomizeObstacleSpeed = true; // Whether to randomiz
@@ -1388,13 +1399,19 @@ public class GameController : MonoBehaviour
         {
             rightRoad = Instantiate(roadBackground, compositeBackground.transform);
             rightRoad.name = "RightRoadSection";
-            float rightRoadX = roadSectionWidth / 2 + 2f; // Position right of center with small overlap
+
+            // FIXED: Position the right road further away and adjust its scale/crop if needed
+            float rightRoadX = roadSectionWidth / 2 + 6f; // Increased offset from 2f to 6f
             rightRoad.transform.position = new Vector3(Camera.main.transform.position.x + rightRoadX, 0, 0);
 
-            // Make road initially transparent
+            // FIXED: Optionally crop the right road to prevent it from extending too far left
             SpriteRenderer rightRoadRenderer = rightRoad.GetComponent<SpriteRenderer>();
             if (rightRoadRenderer != null)
             {
+                // Scale down the sprite horizontally to reduce its leftward extent
+                rightRoad.transform.localScale = new Vector3(0.7f, 1f, 1f);
+
+                // Make road initially transparent
                 Color transparent = rightRoadRenderer.color;
                 transparent.a = 0f;
                 rightRoadRenderer.color = transparent;

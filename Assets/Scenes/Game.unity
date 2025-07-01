@@ -245,7 +245,7 @@ BoxCollider2D:
   m_UsedByEffector: 0
   m_CompositeOperation: 0
   m_CompositeOrder: 0
-  m_Offset: {x: 0.26974702, y: -0.0130957365}
+  m_Offset: {x: 0.26974702, y: -0.05924192}
   m_SpriteTilingProperty:
     border: {x: 0, y: 0, z: 0, w: 0}
     pivot: {x: 0.5, y: 0.5}
@@ -255,7 +255,7 @@ BoxCollider2D:
     drawMode: 0
     adaptiveTiling: 0
   m_AutoTiling: 0
-  m_Size: {x: 1.9753833, y: 0.22490048}
+  m_Size: {x: 1.9753833, y: 0.5940699}
   m_EdgeRadius: 0
 --- !u!114 &51813414
 MonoBehaviour:
@@ -1404,7 +1404,7 @@ MonoBehaviour:
   m_Content: {fileID: 1159271398}
   m_Horizontal: 1
   m_Vertical: 1
-  m_MovementType: 1
+  m_MovementType: 2
   m_Elasticity: 0.1
   m_Inertia: 1
   m_DecelerationRate: 0.135
@@ -4412,7 +4412,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerCar: {fileID: 51813410}
   verticalMoveSpeed: 5
-  verticalSpeedMultiplier: 0.5
+  verticalSpeedMultiplier: 1
   laneWidth: 8
   gearSpeeds:
   - 5
@@ -4421,7 +4421,7 @@ MonoBehaviour:
   - 20
   - 25
   startPosition: -10
-  endPosition: 1000
+  endPosition: 50
   roadBackground: {fileID: 1278002871}
   backgroundScrollSpeed: 1
   normalModeBackgroundMultipliers:
@@ -5004,6 +5004,65 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1956830071}
   m_CullTransparentMesh: 0
+--- !u!1 &1964517582
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1964517584}
+  - component: {fileID: 1964517583}
+  m_Layer: 0
+  m_Name: MusicController
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1964517583
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1964517582}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b4a28cb14674dba499205e78bd150d9e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  musicSource: {fileID: 0}
+  sfxSource: {fileID: 0}
+  titleScreenMusic: {fileID: 8300000, guid: 5ecb5ea472a30f040a46e62869b9009d, type: 3}
+  gameplayMusic: {fileID: 8300000, guid: 22649702c79bdb241b6823dd7777c819, type: 3}
+  winScreenMusic: {fileID: 8300000, guid: af9f512a38df5ce4c99fab8f5028512a, type: 3}
+  buttonClickSFX: {fileID: 0}
+  gearChangeSFX: {fileID: 0}
+  obstacleHitSFX: {fileID: 0}
+  boostCollectSFX: {fileID: 0}
+  boostActiveSFX: {fileID: 0}
+  gameOverSFX: {fileID: 0}
+  winSFX: {fileID: 0}
+  musicVolume: 0.4
+  sfxVolume: 0.8
+  fadeTime: 1
+--- !u!4 &1964517584
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1964517582}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 361.87192, y: 172.66179, z: -2.0040832}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1975141177
 GameObject:
   m_ObjectHideFlags: 0
@@ -5431,3 +5490,4 @@ SceneRoots:
   - {fileID: 895231761}
   - {fileID: 413055074}
   - {fileID: 1474144342}
+  - {fileID: 1964517584}
