@@ -21,6 +21,17 @@ public class MusicController : MonoBehaviour
     [SerializeField] private AudioClip gameOverSFX;
     [SerializeField] private AudioClip winSFX;
 
+    [Header("Individual SFX Volume Controls")]
+    [SerializeField][Range(0f, 2f)] private float obstacleHitVolume = 2f; // Adjustable in Inspector
+    [SerializeField][Range(0f, 1f)] private float gearChangeVolume = 1.0f;
+    [SerializeField][Range(0f, 1f)] private float boostCollectVolume = 1.0f;
+    [SerializeField][Range(0f, 1f)] private float boostActiveVolume = 1.0f;
+    // Add more individual volumes as needed
+
+    [Header("Gear Change Pitch Settings")]
+    [SerializeField] private float[] gearPitches = { 0.8f, 0.9f, 1.0f, 1.1f, 1.2f }; // Pitch for each gear (1-5)
+    [SerializeField] private bool useGearPitchVariation = true; // Toggle for pitch variation
+
     [Header("Settings")]
     [SerializeField] private float musicVolume = 0.7f;
     [SerializeField] private float sfxVolume = 0.8f;
@@ -179,6 +190,24 @@ public class MusicController : MonoBehaviour
         PlaySFX(gearChangeSFX);
     }
 
+    // NEW: Gear change with specific pitch based on gear number
+    public void PlayGearChangeSFX(int gearIndex)
+    {
+        if (gearChangeSFX != null && sfxSource != null)
+        {
+            // Calculate pitch based on gear
+            float pitch = 1.0f; // Default pitch
+
+            if (useGearPitchVariation && gearIndex >= 0 && gearIndex < gearPitches.Length)
+            {
+                pitch = gearPitches[gearIndex];
+            }
+
+            // Play with specific pitch
+            PlaySFXWithPitch(gearChangeSFX, pitch);
+        }
+    }
+
     public void PlayObstacleHitSFX()
     {
         PlaySFX(obstacleHitSFX);
@@ -208,7 +237,33 @@ public class MusicController : MonoBehaviour
     {
         if (clip != null && sfxSource != null)
         {
+            // Reset pitch to normal before playing
+            sfxSource.pitch = 1.0f;
             sfxSource.PlayOneShot(clip);
+        }
+    }
+
+    // NEW: Play SFX with specific pitch
+    private void PlaySFXWithPitch(AudioClip clip, float pitch)
+    {
+        if (clip != null && sfxSource != null)
+        {
+            // Set the pitch
+            sfxSource.pitch = pitch;
+            sfxSource.PlayOneShot(clip);
+
+            // Reset pitch back to normal after playing for other SFX
+            StartCoroutine(ResetPitchAfterClip(clip.length));
+        }
+    }
+
+    // Coroutine to reset pitch after the clip finishes
+    private IEnumerator ResetPitchAfterClip(float clipLength)
+    {
+        yield return new WaitForSeconds(clipLength);
+        if (sfxSource != null)
+        {
+            sfxSource.pitch = 1.0f;
         }
     }
 
@@ -236,6 +291,29 @@ public class MusicController : MonoBehaviour
 
     public float GetMusicVolume() => musicVolume;
     public float GetSFXVolume() => sfxVolume;
+
+    #endregion
+
+    #region Gear Pitch Configuration
+
+    // Method to update gear pitches at runtime if needed
+    public void SetGearPitch(int gearIndex, float pitch)
+    {
+        if (gearIndex >= 0 && gearIndex < gearPitches.Length)
+        {
+            gearPitches[gearIndex] = Mathf.Clamp(pitch, 0.1f, 3.0f); // Reasonable pitch range
+        }
+    }
+
+    // Get current gear pitch setting
+    public float GetGearPitch(int gearIndex)
+    {
+        if (gearIndex >= 0 && gearIndex < gearPitches.Length)
+        {
+            return gearPitches[gearIndex];
+        }
+        return 1.0f; // Default pitch
+    }
 
     #endregion
 }

@@ -106,7 +106,20 @@ public class GameController : MonoBehaviour
     public GameObject[] handcraftedObstacleSets; // Array of pre-assembled obstacle set prefabs
     public float obstacleSetInterval = 100f; // Distance between handcrafted sets (100m)
     public float obstacleSetSpawnDistance = 30f; // How far ahead to spawn obstacle sets
+    public float minRandomObstacleGap = 20f; // ADDED: Minimum distance of random obstacles after each set
     public bool useObstacleSets = true; // Toggle the alternating system on/off
+
+    [Header("Countdown System")]
+    public TMP_Text countdownText; // Text element for displaying countdown (3, 2, 1, GO!)
+    public float countdownDuration = 1f; // How long each countdown number is displayed
+    public float countdownTextSize = 72f; // Size of countdown text
+    public Color countdownColor = Color.white; // Color of countdown text
+    private bool isCountdownActive = false; // Whether countdown is currently running
+    public GameObject CountdownIndicatorUp; // Reference to the up arrow key image
+    public GameObject CountdownIndicatorDown; // Reference to the down arrow key image
+    public GameObject CountdownIndicatorLeft; // Reference to the left arrow key image
+    public GameObject CountdownIndicatorRight; // Reference to the right arrow key image
+    private bool gameStarted = false; // Whether the actual game has started (after countdown)
 
     // Private variables for tracking obstacle sets
     private float lastObstacleSetDistance = 0f; // Track when we last spawned a set
@@ -154,7 +167,128 @@ public class GameController : MonoBehaviour
     private float originalBackgroundScrollSpeed;
     private Vector3 playerStartPosition; // To store player position for parking animation
     private Vector3 originalCameraPosition; // To store original camera position
+                                            // Start is called before the first frame update
+    void Start()
+    {
+        if (playerCar == null)
+            playerCar = GameObject.FindGameObjectWithTag("Player");
 
+        if (obstacleParent == null)
+            obstacleParent = new GameObject("Obstacles").transform;
+
+        // Setup collectible parent if not assigned
+        if (collectibleParent == null)
+            collectibleParent = new GameObject("Collectibles").transform;
+
+        if (goalProgressBar != null)
+        {
+            float totalRaceDistance = endPosition - startPosition;
+            goalProgressBar.Initialize(totalRaceDistance);
+        }
+
+        // Initialize flag progress indicator
+        if (flagProgressIndicator != null)
+        {
+            float totalRaceDistance = endPosition - startPosition;
+            flagProgressIndicator.Initialize(totalRaceDistance);
+        }
+
+        if (goalProgressBar != null)
+        {
+            float totalRaceDistance = endPosition - startPosition;
+            goalProgressBar.Initialize(totalRaceDistance);
+        }
+        // Calculate lane boundaries
+        minYPosition = -laneWidth / 2;
+        maxYPosition = laneWidth / 2;
+
+        // Initialize player position (fixed X position)
+        playerCar.transform.position = new Vector3(0, 0, 0);
+
+        // Setup background if using repeating sprites
+        if (useRepeatingBackground && roadBackground != null)
+        {
+            SetupRepeatingBackground();
+        }
+
+        // Start gameplay music
+        if (MusicController.Instance != null)
+        {
+            MusicController.Instance.PlayGameplayMusic();
+        }
+
+        // Start the countdown sequence
+        StartCoroutine(StartCountdownSequence());
+
+        // Setup UI
+        UpdateGearText();
+        UpdateBoostUI(); // Initialize boost UI
+
+        // ADDED: Ensure win screen elements are properly hidden at scene start
+        HideWinScreenElements();
+
+        // Initially hide gameplay UI (will be shown after countdown)
+        HideGameplayUIDuringCountdown();
+
+        // Ensure leaderboard is hidden during gameplay
+        if (leaderboardManager != null)
+        {
+            leaderboardManager.HideGasStationLeaderboard();
+        }
+
+        // Hide end game panels
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (winPanel != null) winPanel.SetActive(false);
+
+        if (useInverseSpeedSystem)
+        {
+            // Ensure arrays are properly sized
+            if (worldSpeedByGear.Length != gearSpeeds.Length)
+            {
+                Debug.LogWarning("worldSpeedByGear array size doesn't match gearSpeeds array size!");
+            }
+            if (backgroundSpeedMultipliers.Length != gearSpeeds.Length)
+            {
+                Debug.LogWarning("backgroundSpeedMultipliers array size doesn't match gearSpeeds array size!");
+            }
+
+            worldSpeed = worldSpeedByGear[currentGear];
+            Debug.Log("Inverse speed system enabled!");
+        }
+        else
+        {
+            worldSpeed = gearSpeeds[currentGear];
+            Debug.Log("Classic speed system enabled!");
+        }
+        if (useInverseSpeedSystem)
+        {
+            worldSpeed = worldSpeedByGear[currentGear];
+        }
+        else
+        {
+            worldSpeed = gearSpeeds[currentGear]; // Keep original behavior as fallback
+        }
+
+        // Setup lane positions
+        SetupLanes();
+
+        // Initialize vertical movement speed
+        UpdateVerticalMoveSpeed();
+
+        // Start obstacle spawning
+        StartCoroutine(SpawnObstacles());
+
+        // Start collectible spawning
+        StartCoroutine(SpawnCollectibles());
+
+        // Start obstacle animation
+        StartCoroutine(AnimateObstacles());
+
+        //start player animation
+        SetupPlayerAnimation();
+
+        LoadBestTime();
+    }
     // Helper method to calculate current vertical movement speed based on gear
     // Helper method to calculate current vertical movement speed based on gear
     private void UpdateVerticalMoveSpeed()
@@ -195,9 +329,12 @@ public class GameController : MonoBehaviour
         // Hide boost charges text during win animation
         if (boostChargesText != null)
             boostChargesText.gameObject.SetActive(false);
+
+        // Hide distance text during win animation
+        if (distanceText != null)
+            distanceText.gameObject.SetActive(false);
     }
 
-    // Helper method to show gameplay UI elements (for restart)
     private void ShowGameplayUI()
     {
         // Show timer text during normal gameplay
@@ -215,6 +352,10 @@ public class GameController : MonoBehaviour
         // Show boost charges text during normal gameplay
         if (boostChargesText != null)
             boostChargesText.gameObject.SetActive(true);
+
+        // Show distance text during normal gameplay
+        if (distanceText != null)
+            distanceText.gameObject.SetActive(true);
     }
 
     private void UpdateGearText()
@@ -258,8 +399,8 @@ public class GameController : MonoBehaviour
     // Activate boost mode
     private void ActivateBoost()
     {
-        if (currentBoostCharges <= 0 || isBoostActive) return;
-
+        if (currentBoostCharges <= 0 || isBoostActive || !gameStarted) return;
+        MusicController.Instance.PlayBoostActiveSFX();
         currentBoostCharges--;
         isBoostActive = true;
         boostTimer = boostDuration;
@@ -325,54 +466,121 @@ public class GameController : MonoBehaviour
     {
         return isBoostActive;
     }
-
     private void MoveObstacles()
     {
-        // If player is halted, don't process obstacles
-        if (isHalted)
+        // If player is halted or game hasn't started, don't process obstacles
+        if (isHalted || !gameStarted)
             return;
+
+        // Check if our current obstacle set has passed the player
+        if (isObstacleSetActive && currentObstacleSet != null)
+        {
+            // Check if ALL child obstacles in the set have passed the despawn point
+            bool allObstaclesPassed = true;
+            int childCount = currentObstacleSet.transform.childCount;
+            int passedCount = 0;
+
+            foreach (Transform child in currentObstacleSet.transform)
+            {
+                if (child != null)
+                {
+                    if (child.position.x <= -despawnDistance)
+                    {
+                        passedCount++;
+                    }
+                    else
+                    {
+                        allObstaclesPassed = false;
+                    }
+                }
+            }
+
+            // Also check if the parent container itself has passed
+            bool parentPassed = currentObstacleSet.transform.position.x < -despawnDistance;
+
+            // Debug information
+            Debug.Log($"Obstacle Set Status: Parent passed={parentPassed}, " +
+                      $"Children passed={passedCount}/{childCount}, " +
+                      $"Set position={currentObstacleSet.transform.position.x:F1}");
+
+            // End obstacle set phase only when both conditions are met:
+            // 1. The parent container has moved past despawn point, AND
+            // 2. All individual obstacles within the set have also passed
+            if (parentPassed && allObstaclesPassed)
+            {
+                Debug.Log("All obstacles in set have passed, returning to random spawning");
+
+                // FIXED: Reset the obstacle set timer to current distance to prevent immediate respawning
+                lastObstacleSetDistance = distanceTraveled;
+                isObstacleSetActive = false;
+                currentObstacleSet = null; // Will be destroyed by the normal cleanup below
+
+                Debug.Log($"Obstacle set timer reset. Next set will spawn at distance {distanceTraveled + obstacleSetInterval:F1}m");
+            }
+        }
 
         // Get a reference speed (2nd gear speed) to compare against
         float gearTwoSpeed = gearSpeeds.Length > 1 ? gearSpeeds[1] : 10f;
-
-        // Special minimum speed for 1st gear to ensure forward movement
         float minimumRelativeSpeed = 3f;
 
         foreach (Transform obstacle in obstacleParent)
         {
             if (obstacle == null) continue;
 
-            // Get obstacle's speed factor if it has a movement component
-            ObstacleMovement obstacleMovement = obstacle.GetComponent<ObstacleMovement>();
-            float speedFactor = 0.7f; // Default speed factor
-
-            if (obstacleMovement != null)
+            // Handle obstacle set movement (they move as a whole unit)
+            if (obstacle == currentObstacleSet)
             {
-                speedFactor = obstacleMovement.GetCurrentSpeedFactor();
+                // Move the entire obstacle set
+                float currentPlayerSpeed = isBoostActive ? boostSpeed : worldSpeed;
+                float relativeSpeed = currentPlayerSpeed * 0.7f; // Obstacle sets move at 70% of player speed
+
+                // Special handling for 1st gear
+                if (currentGear == 0 && relativeSpeed <= 0 && !isBoostActive)
+                {
+                    relativeSpeed = minimumRelativeSpeed;
+                }
+
+                obstacle.position += Vector3.left * relativeSpeed * Time.deltaTime;
             }
-
-            // Calculate base movement speed
-            float baseSpeed = gearTwoSpeed * speedFactor;
-
-            // Use boost speed if active, otherwise use current world speed
-            float currentPlayerSpeed = isBoostActive ? boostSpeed : worldSpeed;
-
-            // Calculate relative speed between player and obstacle
-            float relativeSpeed = currentPlayerSpeed - baseSpeed;
-
-            // Special handling for 1st gear - ensure obstacles always move forward
-            if (currentGear == 0 && relativeSpeed <= 0 && !isBoostActive)
+            else
             {
-                // Force a minimum positive relative speed in 1st gear
-                relativeSpeed = minimumRelativeSpeed;
-            }
+                // Handle individual obstacle movement (your existing logic)
+                ObstacleMovement obstacleMovement = obstacle.GetComponent<ObstacleMovement>();
+                float speedFactor = 0.7f;
 
-            // Move obstacle based on relative speed
-            obstacle.position += Vector3.left * relativeSpeed * Time.deltaTime;
+                if (obstacleMovement != null)
+                {
+                    speedFactor = obstacleMovement.GetCurrentSpeedFactor();
+                }
+
+                float baseSpeed = gearTwoSpeed * speedFactor;
+                float currentPlayerSpeed = isBoostActive ? boostSpeed : worldSpeed;
+                float relativeSpeed = currentPlayerSpeed - baseSpeed;
+
+                if (currentGear == 0 && relativeSpeed <= 0 && !isBoostActive)
+                {
+                    relativeSpeed = minimumRelativeSpeed;
+                }
+
+                obstacle.position += Vector3.left * relativeSpeed * Time.deltaTime;
+            }
 
             // Remove obstacles that have gone past the player
             if (obstacle.position.x < -despawnDistance)
             {
+                // If this was our current obstacle set, mark it as inactive
+                if (obstacle == currentObstacleSet)
+                {
+                    Debug.Log("Obstacle set container destroyed, returning to random spawning");
+
+                    // FIXED: Reset the obstacle set timer to current distance
+                    lastObstacleSetDistance = distanceTraveled;
+                    isObstacleSetActive = false;
+                    currentObstacleSet = null;
+
+                    Debug.Log($"Obstacle set timer reset. Next set will spawn at distance {distanceTraveled + obstacleSetInterval:F1}m");
+                }
+
                 Destroy(obstacle.gameObject);
             }
         }
@@ -381,7 +589,7 @@ public class GameController : MonoBehaviour
     // Move collectibles (cigarette packs)
     private void MoveCollectibles()
     {
-        if (isHalted || collectibleParent == null)
+        if (isHalted || collectibleParent == null || !gameStarted)
             return;
 
         foreach (Transform collectible in collectibleParent)
@@ -407,17 +615,37 @@ public class GameController : MonoBehaviour
 
     private void ScrollBackground()
     {
-        // If player is halted or if we're in win animation, don't automatically scroll
+        // If player is halted, don't automatically scroll
         if (isHalted)
             return;
 
+        // Debug logging to see if method is being called
+        Debug.Log($"ScrollBackground called - gameStarted: {gameStarted}, backgrounds.Count: {backgrounds.Count}");
+
         // Calculate effective scroll speed
-        float baseScrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
+        float baseScrollSpeed;
+
+        // Use slower speed during countdown for visual interest
+        if (!gameStarted)
+        {
+            baseScrollSpeed = 5f; // Fixed speed during countdown
+            Debug.Log($"Countdown mode - using fixed speed: {baseScrollSpeed}");
+        }
+        else
+        {
+            baseScrollSpeed = isBoostActive ? boostSpeed : worldSpeed;
+            Debug.Log($"Game mode - using calculated speed: {baseScrollSpeed}");
+        }
 
         // Apply gear-based multiplier based on which system is active
         float scrollMultiplier = backgroundScrollSpeed;
 
-        if (useInverseSpeedSystem)
+        if (!gameStarted)
+        {
+            // During countdown, use a simple multiplier
+            scrollMultiplier = 0.1f; // Simple multiplier for countdown
+        }
+        else if (useInverseSpeedSystem)
         {
             // Calculate the gear effect, then scale it by intensity
             float gearEffect = backgroundSpeedMultipliers[currentGear] - 1f; // Get the bonus part (above 1.0)
@@ -434,15 +662,26 @@ public class GameController : MonoBehaviour
             }
         }
 
+        Debug.Log($"Final scroll calculation - baseSpeed: {baseScrollSpeed}, multiplier: {scrollMultiplier}, finalSpeed: {baseScrollSpeed * scrollMultiplier}");
+
         if (useRepeatingBackground)
         {
             // For sprite-based repeating backgrounds
             if (backgrounds.Count > 0)
             {
+                Debug.Log($"Moving {backgrounds.Count} background sprites");
                 // Move all background pieces
                 foreach (SpriteRenderer bg in backgrounds)
                 {
+                    if (bg == null)
+                    {
+                        Debug.LogWarning("Found null background sprite!");
+                        continue;
+                    }
+
+                    Vector3 oldPosition = bg.transform.position;
                     bg.transform.position += Vector3.left * baseScrollSpeed * Time.deltaTime * scrollMultiplier;
+                    Debug.Log($"Background moved from {oldPosition} to {bg.transform.position}");
 
                     // If background piece has moved off-screen to the left, move it to the right
                     if (bg.transform.position.x < -backgroundSize)
@@ -451,8 +690,13 @@ public class GameController : MonoBehaviour
                             bg.transform.position.x + backgroundSize * backgrounds.Count,
                             bg.transform.position.y,
                             bg.transform.position.z);
+                        Debug.Log($"Background wrapped to position: {bg.transform.position}");
                     }
                 }
+            }
+            else
+            {
+                Debug.LogWarning("No backgrounds found in list!");
             }
         }
         else if (roadBackground != null)
@@ -464,129 +708,16 @@ public class GameController : MonoBehaviour
                 // Scroll the texture
                 float offset = Time.time * baseScrollSpeed * scrollMultiplier;
                 renderer.material.mainTextureOffset = new Vector2(offset % 1, 0);
+                Debug.Log($"Texture offset set to: {renderer.material.mainTextureOffset}");
+            }
+            else
+            {
+                Debug.LogWarning("Road background renderer or material is null!");
             }
         }
     }
 
-    // Start is called before the first frame update
-    void Start()
-    {
-        if (playerCar == null)
-            playerCar = GameObject.FindGameObjectWithTag("Player");
 
-        if (obstacleParent == null)
-            obstacleParent = new GameObject("Obstacles").transform;
-
-        // Setup collectible parent if not assigned
-        if (collectibleParent == null)
-            collectibleParent = new GameObject("Collectibles").transform;
-
-        if (goalProgressBar != null)
-        {
-            float totalRaceDistance = endPosition - startPosition;
-            goalProgressBar.Initialize(totalRaceDistance);
-        }
-
-        // Initialize flag progress indicator
-        if (flagProgressIndicator != null)
-        {
-            float totalRaceDistance = endPosition - startPosition;
-            flagProgressIndicator.Initialize(totalRaceDistance);
-        }
-
-        if (goalProgressBar != null)
-        {
-            float totalRaceDistance = endPosition - startPosition;
-            goalProgressBar.Initialize(totalRaceDistance);
-        }
-        // Calculate lane boundaries
-        minYPosition = -laneWidth / 2;
-        maxYPosition = laneWidth / 2;
-
-        // Initialize player position (fixed X position)
-        playerCar.transform.position = new Vector3(0, 0, 0);
-
-        // Setup background if using repeating sprites
-        if (useRepeatingBackground && roadBackground != null)
-        {
-            SetupRepeatingBackground();
-        }
-
-        // Start gameplay music
-        if (MusicController.Instance != null)
-        {
-            MusicController.Instance.PlayGameplayMusic();
-        }
-
-        // Setup UI
-        UpdateGearText();
-        UpdateBoostUI(); // Initialize boost UI
-
-        // ADDED: Ensure win screen elements are properly hidden at scene start
-        HideWinScreenElements();
-
-        // Show gameplay UI elements at start
-        ShowGameplayUI();
-
-        // Ensure leaderboard is hidden during gameplay
-        if (leaderboardManager != null)
-        {
-            leaderboardManager.HideGasStationLeaderboard();
-        }
-
-        // Hide end game panels
-        if (gameOverPanel != null) gameOverPanel.SetActive(false);
-        if (winPanel != null) winPanel.SetActive(false);
-
-        if (useInverseSpeedSystem)
-        {
-            // Ensure arrays are properly sized
-            if (worldSpeedByGear.Length != gearSpeeds.Length)
-            {
-                Debug.LogWarning("worldSpeedByGear array size doesn't match gearSpeeds array size!");
-            }
-            if (backgroundSpeedMultipliers.Length != gearSpeeds.Length)
-            {
-                Debug.LogWarning("backgroundSpeedMultipliers array size doesn't match gearSpeeds array size!");
-            }
-
-            worldSpeed = worldSpeedByGear[currentGear];
-            Debug.Log("Inverse speed system enabled!");
-        }
-        else
-        {
-            worldSpeed = gearSpeeds[currentGear];
-            Debug.Log("Classic speed system enabled!");
-        }
-        if (useInverseSpeedSystem)
-        {
-            worldSpeed = worldSpeedByGear[currentGear];
-        }
-        else
-        {
-            worldSpeed = gearSpeeds[currentGear]; // Keep original behavior as fallback
-        }
-
-        // Setup lane positions
-        SetupLanes();
-
-        // Initialize vertical movement speed
-        UpdateVerticalMoveSpeed();
-
-        // Start obstacle spawning
-        StartCoroutine(SpawnObstacles());
-
-        // Start collectible spawning
-        StartCoroutine(SpawnCollectibles());
-
-        // Start obstacle animation
-        StartCoroutine(AnimateObstacles());
-
-        //start player animation
-        SetupPlayerAnimation();
-
-        LoadBestTime();
-    }
 
     // ADDED: New method to hide all win screen elements at scene start
     private void HideWinScreenElements()
@@ -694,15 +825,18 @@ public class GameController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        // Only increment timer if the player hasn't won and timer hasn't been stopped
-        if (!timerStopped)
+        // Only increment timer if the player hasn't won, timer hasn't been stopped, AND game has started
+        if (!timerStopped && gameStarted)
             gameTimer += Time.deltaTime;
 
         if (isGameOver || hasWon) return;
 
-        // Always update UI regardless of halt state
-        UpdateDistanceText();
-        UpdateTimerText();
+        // Always update UI regardless of halt state (but only if game has started)
+        if (gameStarted)
+        {
+            UpdateDistanceText();
+            UpdateTimerText();
+        }
 
         // If win animation is playing, let the coroutine handle movement
         if (isWinAnimationPlaying || hasWon)
@@ -717,14 +851,14 @@ public class GameController : MonoBehaviour
         }
         // From this point on, code only runs when NOT halted
 
-        // Handle boost activation with spacebar
-        if (Input.GetKeyDown(KeyCode.Space))
+        // Handle boost activation with spacebar (only if game has started)
+        if (Input.GetKeyDown(KeyCode.Space) && gameStarted)
         {
             ActivateBoost();
         }
 
-        // Update boost timer
-        if (isBoostActive)
+        // Update boost timer (only if game has started)
+        if (isBoostActive && gameStarted)
         {
             boostTimer -= Time.deltaTime;
             if (boostTimer <= 0f)
@@ -746,16 +880,30 @@ public class GameController : MonoBehaviour
             newYPosition,
             playerCar.transform.position.z);
 
+        // In the Update() method, find this section and modify it:
+
         // Handle gear changes (left/right)
         if (Input.GetKeyDown(KeyCode.RightArrow) && currentGear < gearSpeeds.Length - 1)
         {
             currentGear++;
             UpdateGearText();
+
+            // NEW: Play gear change sound with pitch based on new gear
+            if (MusicController.Instance != null)
+            {
+                MusicController.Instance.PlayGearChangeSFX(currentGear);
+            }
         }
         else if (Input.GetKeyDown(KeyCode.LeftArrow) && currentGear > 0)
         {
             currentGear--;
             UpdateGearText();
+
+            // NEW: Play gear change sound with pitch based on new gear
+            if (MusicController.Instance != null)
+            {
+                MusicController.Instance.PlayGearChangeSFX(currentGear);
+            }
         }
 
         // Update world speed based on current gear (but boost overrides this for movement)
@@ -768,20 +916,29 @@ public class GameController : MonoBehaviour
             worldSpeed = gearSpeeds[currentGear];
         }
 
-        // Track virtual distance traveled (use boost speed if active)
-        float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
-        distanceTraveled += currentSpeed * Time.deltaTime;
-
-        // Update progress bar
-        if (goalProgressBar != null)
+        // Track virtual distance traveled ONLY if game has started (use boost speed if active)
+        if (gameStarted)
         {
-            goalProgressBar.UpdateProgress(distanceTraveled);
-        }
+            float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
+            distanceTraveled += currentSpeed * Time.deltaTime;
 
-        // Update flag progress indicator
-        if (flagProgressIndicator != null)
-        {
-            flagProgressIndicator.UpdateProgress(distanceTraveled);
+            // Update progress bar
+            if (goalProgressBar != null)
+            {
+                goalProgressBar.UpdateProgress(distanceTraveled);
+            }
+
+            // Update flag progress indicator
+            if (flagProgressIndicator != null)
+            {
+                flagProgressIndicator.UpdateProgress(distanceTraveled);
+            }
+
+            // Check if player has virtually reached the goal (gas station)
+            if (distanceTraveled >= (endPosition - startPosition))
+            {
+                Win();
+            }
         }
 
         // Update game timer
@@ -799,8 +956,11 @@ public class GameController : MonoBehaviour
             Win();
         }
 
-        // Update invulnerability system
-        UpdateInvulnerability();
+        // Update invulnerability system (only if game has started)
+        if (gameStarted)
+        {
+            UpdateInvulnerability();
+        }
     }
     private void UpdateTimerText()
     {
@@ -820,95 +980,301 @@ public class GameController : MonoBehaviour
         }
     }
 
+    // New coroutine to handle the countdown sequence
+    IEnumerator StartCountdownSequence()
+    {
+        isCountdownActive = true;
+        gameStarted = false;
+
+        // Hide gameplay UI during countdown
+        HideGameplayUIDuringCountdown();
+
+        // Setup countdown text if not already configured
+        if (countdownText != null)
+        {
+            countdownText.gameObject.SetActive(true);
+            countdownText.fontSize = countdownTextSize;
+            countdownText.color = countdownColor;
+            countdownText.alignment = TextAlignmentOptions.Center;
+        }
+
+        // Countdown from 3 to 1
+        for (int i = 3; i >= 1; i--)
+        {
+            if (countdownText != null)
+            {
+                countdownText.text = i.ToString();
+
+                // Add some visual flair with DOTween
+                countdownText.transform.localScale = Vector3.zero;
+                countdownText.transform.DOScale(1f, 0.3f).SetEase(Ease.OutElastic);
+                countdownText.DOColor(countdownColor, 0.1f);
+            }
+
+            yield return new WaitForSeconds(countdownDuration);
+        }
+
+        // Show "GO!" message
+        if (countdownText != null)
+        {
+            countdownText.text = "GO!";
+            countdownText.transform.localScale = Vector3.zero;
+            countdownText.transform.DOScale(1.2f, 0.3f).SetEase(Ease.OutElastic);
+            countdownText.DOColor(Color.green, 0.1f);
+        }
+
+        yield return new WaitForSeconds(countdownDuration);
+
+        // Hide countdown text and show gameplay UI
+        if (countdownText != null)
+        {
+            countdownText.DOFade(0f, 0.5f).OnComplete(() => {
+                countdownText.gameObject.SetActive(false);
+            });
+        }
+        CountdownIndicatorUp.SetActive(false);
+        CountdownIndicatorDown.SetActive(false);
+        CountdownIndicatorLeft.SetActive(false);
+        CountdownIndicatorRight.SetActive(false);
+
+        // Show gameplay UI after countdown
+        ShowGameplayUI();
+
+        // Mark game as started
+        isCountdownActive = false;
+        gameStarted = true;
+
+        Debug.Log("Countdown complete - Game started!");
+    }
+
+    // Helper method to hide gameplay UI during countdown
+    private void HideGameplayUIDuringCountdown()
+    {
+        if (timerText != null)
+            timerText.gameObject.SetActive(false);
+
+        if (goalProgressBar != null)
+            goalProgressBar.gameObject.SetActive(false);
+
+        if (flagProgressIndicator != null)
+            flagProgressIndicator.gameObject.SetActive(false);
+
+        if (boostChargesText != null)
+            boostChargesText.gameObject.SetActive(false);
+
+        if (distanceText != null)
+            distanceText.gameObject.SetActive(false);
+    }
+
     IEnumerator SpawnObstacles()
     {
         while (!isGameOver && !hasWon)
         {
-            // Skip spawning if player is halted or won
-            if (isHalted || hasWon || isWinAnimationPlaying)
+            // Skip spawning if player is halted, won, OR game hasn't started yet
+            if (isHalted || hasWon || isWinAnimationPlaying || !gameStarted)
             {
                 // Wait a short time before checking again
                 yield return new WaitForSeconds(0.1f);
                 continue;
             }
 
-            // Try to find a valid spawn position
-            Vector3 spawnPos = Vector3.zero;
-            bool validPositionFound = false;
-            int maxAttempts = 10; // Prevent infinite loops
-            int attempts = 0;
+            // Debug the current state
+            Debug.Log($"SpawnObstacles: Distance={distanceTraveled:F1}, isObstacleSetActive={isObstacleSetActive}, " +
+                      $"distanceSinceLastSet={distanceTraveled - lastObstacleSetDistance:F1}");
 
-            while (!validPositionFound && attempts < maxAttempts)
+            // Check if we should spawn a handcrafted obstacle set
+            if (useObstacleSets && ShouldSpawnObstacleSet())
             {
-                // Select a random lane for this obstacle
-                int laneIndex = Random.Range(0, numberOfLanes);
-                float obstacleY = lanePositions[laneIndex];
+                SpawnHandcraftedObstacleSet();
 
-                // Position obstacles ahead of the player's view in the selected lane
-                spawnPos = new Vector3(spawnDistance, obstacleY, 0f);
-
-                // Check if this position is clear of other obstacles
-                validPositionFound = IsSpawnPositionClear(spawnPos);
-                attempts++;
+                // Wait longer before checking again (obstacle sets handle their own timing)
+                yield return new WaitForSeconds(1f);
+                continue; // Important: Skip the rest of the loop iteration
             }
 
-            // Only spawn if we found a valid position
-            if (validPositionFound && obstacles != null && obstacles.Length > 0)
+            // Only spawn random obstacles if we're not in an obstacle set phase
+            if (!isObstacleSetActive)
             {
-                GameObject obstaclePrefab = obstacles[Random.Range(0, obstacles.Length)];
+                SpawnRandomObstacle();
+                Debug.Log($"Random obstacle spawned at distance {distanceTraveled:F1}m");
 
-                // Instantiate obstacle - no movement component needed
-                GameObject newObstacle = Instantiate(obstaclePrefab, spawnPos, Quaternion.identity, obstacleParent);
+                // Calculate spawn interval for random obstacles
+                float spawnInterval = CalculateSpawnInterval();
+                Debug.Log($"Next random obstacle in {spawnInterval:F2} seconds");
 
-                // Remove any ObstacleMovement component if it exists
-                ObstacleMovement movement = newObstacle.GetComponent<ObstacleMovement>();
-                if (movement != null)
-                {
-                    Destroy(movement);
-                }
+                // Wait before next spawn check
+                yield return new WaitForSeconds(spawnInterval);
             }
-
-            // ENHANCED: More aggressive spawn rate scaling based on gear
-            float minSpawnInterval = 0.35f; // Faster spawn rate at max speed (reduced from 0.50f)
-            float maxSpawnInterval = 0.85f; // Slower spawn rate at min speed (increased from 0.75f)
-
-            // Get current effective speed (including boost)
-            float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
-
-            // Create a more aggressive scaling curve using gear index directly
-            float gearRatio = (float)currentGear / (gearSpeeds.Length - 1); // 0.0 to 1.0 based on gear
-
-            // Apply exponential scaling to make higher gears much more intense
-            float exponentialGearRatio = Mathf.Pow(gearRatio, 0.6f); // Makes higher gears more pronounced
-
-            // Also factor in actual speed for boost mode
-            float maxSpeed = gearSpeeds[gearSpeeds.Length - 1];
-            float minSpeed = gearSpeeds[0];
-            float speedRatio = Mathf.Clamp01((currentSpeed - minSpeed) / (maxSpeed - minSpeed));
-
-            // Combine gear ratio and speed ratio, giving more weight to gear
-            float combinedRatio = (exponentialGearRatio * 0.7f) + (speedRatio * 0.3f);
-
-            // Special boost mode - even faster spawning
-            if (isBoostActive)
+            else
             {
-                minSpawnInterval = 0.25f; // Very fast during boost
-                combinedRatio = 1.0f; // Maximum spawn rate
+                // If obstacle set is active, check more frequently but don't spawn
+                Debug.Log($"Obstacle set active - waiting for completion at distance {distanceTraveled:F1}m");
+                yield return new WaitForSeconds(0.2f); // Check every 0.2 seconds if set has finished
             }
-
-            // Calculate final spawn interval
-            float spawnInterval = Mathf.Lerp(maxSpawnInterval, minSpawnInterval, combinedRatio);
-
-            // Add slight randomization to make it feel more organic
-            spawnInterval += Random.Range(-0.05f, 0.05f);
-            spawnInterval = Mathf.Max(spawnInterval, 0.2f); // Ensure minimum interval
-
-            // Debug info to see the scaling in action
-            Debug.Log($"Gear {currentGear + 1}: Spawn interval = {spawnInterval:F2}s (Ratio: {combinedRatio:F2})");
-
-            // Wait before next spawn
-            yield return new WaitForSeconds(spawnInterval);
         }
+    }
+    // New method to check if we should spawn an obstacle set
+    // New method to check if we should spawn an obstacle set
+    private bool ShouldSpawnObstacleSet()
+    {
+        // Check if enough distance has passed since the last obstacle set
+        float distanceSinceLastSet = distanceTraveled - lastObstacleSetDistance;
+
+        // FIXED: Ensure we have a minimum gap for random obstacles after each set
+        float effectiveInterval = obstacleSetInterval + minRandomObstacleGap;
+
+        bool shouldSpawn = distanceSinceLastSet >= effectiveInterval &&
+                           !isObstacleSetActive &&
+                           handcraftedObstacleSets != null &&
+                           handcraftedObstacleSets.Length > 0;
+
+        if (distanceSinceLastSet >= effectiveInterval - 10f) // Start logging when we're close
+        {
+            Debug.Log($"ShouldSpawnObstacleSet: distanceSinceLastSet={distanceSinceLastSet:F1}, " +
+                      $"effectiveInterval={effectiveInterval}, isActive={isObstacleSetActive}, " +
+                      $"shouldSpawn={shouldSpawn}");
+        }
+
+        return shouldSpawn;
+    }
+
+    // New method to spawn a handcrafted obstacle set
+    // New method to spawn a handcrafted obstacle set
+    private void SpawnHandcraftedObstacleSet()
+    {
+        // Clear any remaining random obstacles to make room for the set
+        ClearRandomObstacles();
+
+        // Select a random obstacle set
+        GameObject setToSpawn = handcraftedObstacleSets[Random.Range(0, handcraftedObstacleSets.Length)];
+
+        // Spawn the obstacle set ahead of the player
+        Vector3 spawnPosition = new Vector3(obstacleSetSpawnDistance, 0, 0);
+        currentObstacleSet = Instantiate(setToSpawn, spawnPosition, Quaternion.identity, obstacleParent);
+
+        // Mark that we're now in an obstacle set phase
+        isObstacleSetActive = true;
+
+        // DON'T update lastObstacleSetDistance here - only update it when the set completes
+        // This prevents the timer from advancing prematurely
+
+        // Count the number of obstacles in this set for debugging
+        int obstacleCount = currentObstacleSet.transform.childCount;
+
+        Debug.Log($"Spawned handcrafted obstacle set: {setToSpawn.name} with {obstacleCount} obstacles at distance {distanceTraveled:F1}m");
+        Debug.Log($"Next obstacle set will be eligible at distance {lastObstacleSetDistance + obstacleSetInterval + minRandomObstacleGap:F1}m");
+    }
+
+    // New method to spawn a single random obstacle (extracted from original logic)
+    private void SpawnRandomObstacle()
+    {
+        // Try to find a valid spawn position
+        Vector3 spawnPos = Vector3.zero;
+        bool validPositionFound = false;
+        int maxAttempts = 10;
+        int attempts = 0;
+
+        while (!validPositionFound && attempts < maxAttempts)
+        {
+            // Select a random lane for this obstacle
+            int laneIndex = Random.Range(0, numberOfLanes);
+            float obstacleY = lanePositions[laneIndex];
+
+            // Position obstacles ahead of the player's view in the selected lane
+            spawnPos = new Vector3(spawnDistance, obstacleY, 0f);
+
+            // Check if this position is clear of other obstacles
+            validPositionFound = IsSpawnPositionClear(spawnPos);
+            attempts++;
+        }
+
+        // Only spawn if we found a valid position
+        if (validPositionFound && obstacles != null && obstacles.Length > 0)
+        {
+            GameObject obstaclePrefab = obstacles[Random.Range(0, obstacles.Length)];
+
+            // Instantiate obstacle
+            GameObject newObstacle = Instantiate(obstaclePrefab, spawnPos, Quaternion.identity, obstacleParent);
+
+            // Remove any ObstacleMovement component if it exists (since movement is handled by MoveObstacles)
+            ObstacleMovement movement = newObstacle.GetComponent<ObstacleMovement>();
+            if (movement != null)
+            {
+                Destroy(movement);
+            }
+        }
+    }
+
+    // New method to calculate spawn interval (extracted from original logic)
+    private float CalculateSpawnInterval()
+    {
+        // More aggressive spawn intervals for higher gears
+        float minSpawnInterval = 0.2f;  // Reduced from 0.35f - spawn faster at max gear
+        float maxSpawnInterval = 1.0f;  // Increased from 0.85f - spawn slower at 1st gear
+
+        // Get current effective speed (including boost)
+        float currentSpeed = isBoostActive ? boostSpeed : worldSpeed;
+
+        // Create more aggressive scaling based on gear
+        float gearRatio = (float)currentGear / (gearSpeeds.Length - 1);
+        float exponentialGearRatio = Mathf.Pow(gearRatio, 0.4f); // Reduced from 0.6f for more aggressive curve
+
+        // Factor in actual speed for boost mode
+        float maxSpeed = gearSpeeds[gearSpeeds.Length - 1];
+        float minSpeed = gearSpeeds[0];
+        float speedRatio = Mathf.Clamp01((currentSpeed - minSpeed) / (maxSpeed - minSpeed));
+
+        // Give more weight to gear ratio for consistent progression
+        float combinedRatio = (exponentialGearRatio * 0.8f) + (speedRatio * 0.2f); // Increased gear weight
+
+        // Special boost mode handling - even more obstacles during boost
+        if (isBoostActive)
+        {
+            minSpawnInterval = 0.15f; // Reduced from 0.25f
+            combinedRatio = 1.0f;
+        }
+
+        // Calculate final spawn interval with gear-based bonus
+        float spawnInterval = Mathf.Lerp(maxSpawnInterval, minSpawnInterval, combinedRatio);
+
+        // Add gear-specific bonus reduction (more obstacles at higher gears)
+        float gearBonus = currentGear * 0.05f; // 0.05s reduction per gear
+        spawnInterval -= gearBonus;
+
+        // Add slight randomization
+        spawnInterval += Random.Range(-0.03f, 0.03f); // Reduced randomization range
+
+        // Ensure minimum spawn rate
+        spawnInterval = Mathf.Max(spawnInterval, 0.15f); // Reduced minimum from 0.2f
+
+        return spawnInterval;
+    }
+
+    // New method to clear random obstacles when switching to obstacle sets
+    private void ClearRandomObstacles()
+    {
+        // Get all current obstacles
+        List<Transform> obstaclesToDestroy = new List<Transform>();
+
+        foreach (Transform obstacle in obstacleParent)
+        {
+            if (obstacle == null) continue;
+
+            // Check if this is a random obstacle (not part of a set)
+            // We can identify set obstacles by checking if they're children of an obstacle set GameObject
+            if (obstacle.parent == obstacleParent)
+            {
+                obstaclesToDestroy.Add(obstacle);
+            }
+        }
+
+        // Destroy the random obstacles
+        foreach (Transform obstacle in obstaclesToDestroy)
+        {
+            Destroy(obstacle.gameObject);
+        }
+
+        Debug.Log($"Cleared {obstaclesToDestroy.Count} random obstacles for obstacle set");
     }
 
     // New coroutine for spawning collectibles (cigarette packs)
@@ -1711,7 +2077,6 @@ public class GameController : MonoBehaviour
     }
 
     // Helper method to manually scroll background during win animation
-    // Helper method to manually scroll background during win animation
     private void ScrollBackgroundManually(float scrollSpeed)
     {
         // Apply gear-based multiplier based on which system is active
@@ -1818,7 +2183,47 @@ public class GameController : MonoBehaviour
         }
     }
 
+    // Add this method to cull obstacles outside the play area
+    private void CullObstaclesOutsidePlayArea()
+    {
+        List<Transform> obstaclesToDestroy = new List<Transform>();
 
+        foreach (Transform obstacle in obstacleParent)
+        {
+            if (obstacle == null) continue;
+
+            // Skip obstacle sets (they manage their own children)
+            if (obstacle == currentObstacleSet) continue;
+
+            // Check if obstacle is outside the vertical play boundaries
+            float obstacleY = obstacle.position.y;
+
+            // Add a small buffer to the boundaries to account for obstacle size
+            float buffer = 0.5f; // Adjust this value based on your obstacle sizes
+            float effectiveMinY = minYPosition - buffer;
+            float effectiveMaxY = maxYPosition + buffer;
+
+            if (obstacleY < effectiveMinY || obstacleY > effectiveMaxY)
+            {
+                Debug.Log($"Culling obstacle outside play area at Y: {obstacleY:F2} (valid range: {effectiveMinY:F2} to {effectiveMaxY:F2})");
+                obstaclesToDestroy.Add(obstacle);
+            }
+        }
+
+        // Destroy obstacles that are outside the play area
+        foreach (Transform obstacle in obstaclesToDestroy)
+        {
+            if (obstacle != null)
+            {
+                Destroy(obstacle.gameObject);
+            }
+        }
+
+        if (obstaclesToDestroy.Count > 0)
+        {
+            Debug.Log($"Culled {obstaclesToDestroy.Count} obstacles outside play area");
+        }
+    }
 
     // Call this from a collision detection script on the player
     public void OnPlayerHitObstacle(GameObject hitObstacle)
@@ -1841,6 +2246,12 @@ public class GameController : MonoBehaviour
                     });
             }
             return; // Don't halt or reset gear during boost
+        }
+
+        // ADD THIS LINE: Play obstacle hit sound effect
+        if (MusicController.Instance != null)
+        {
+            MusicController.Instance.PlayObstacleHitSFX();
         }
 
         // Don't process collisions while already halted OR invulnerable
@@ -1866,7 +2277,7 @@ public class GameController : MonoBehaviour
     public void OnPlayerCollectBoost(GameObject collectible)
     {
         Debug.Log("Cigarette pack collected!");
-
+        MusicController.Instance.PlayBoostCollectSFX();
         // Add boost charge
         AddBoostCharge();
 
@@ -1944,10 +2355,28 @@ public class GameController : MonoBehaviour
     {
         return boostDuration;
     }
+    public void ResetObstacleSystem()
+    {
+        isObstacleSetActive = false;
+        currentObstacleSet = null;
+        lastObstacleSetDistance = 0f;
+
+        // Clear all existing obstacles
+        foreach (Transform obstacle in obstacleParent)
+        {
+            if (obstacle != null)
+            {
+                Destroy(obstacle.gameObject);
+            }
+        }
+    }
 
     // UI button functions
     public void RestartGame()
     {
+        // Reset obstacle system
+        ResetObstacleSystem();
+
         // Show gameplay UI elements on restart
         ShowGameplayUI();
 
