@@ -121,6 +121,10 @@ public class GameController : MonoBehaviour
     public GameObject CountdownIndicatorRight; // Reference to the right arrow key image
     private bool gameStarted = false; // Whether the actual game has started (after countdown)
 
+    // Add this to the top of the GameController class, after the existing headers
+    [Header("Pause System")]
+    public PauseMenuController pauseMenuController;
+
     // Private variables for tracking obstacle sets
     private float lastObstacleSetDistance = 0f; // Track when we last spawned a set
     private bool isObstacleSetActive = false; // Whether we're currently in an obstacle set phase
@@ -150,15 +154,22 @@ public class GameController : MonoBehaviour
     [Header("Win Scene")]
     public GameObject gasStationPrefab; // Assign your gas station sprite in inspector
     public GameObject gasStationBackgroundPrefab; // Gas station background prefab
+    public GameObject characterPrefab; // NEW: Assign your character prefab with sprite sheet
+    public float characterAnimationFrameRate = 0.5f; // NEW: How fast to swap character frames
+    public float characterSpawnDelay = 1.0f; // NEW: Delay before character appears after car parks
+    public Vector3 characterOffset = Vector3.zero; // NEW: Offset from car parking position
     public float forwardDriveSpeed = 10f; // How fast the car drives forward
     public float forwardDriveDistance = 5f; // How far the car goes forward
     public float obstacleTimeout = 5f; // Maximum time to wait for obstacles to clear
     public float gasStationTransitionTime = 1.5f; // How long it takes to fade between backgrounds
     public float parkingDuration = 2.0f; // How long it takes to park
     public float finalParkPosition = -3.0f; // X position where car parks (negative = left of center)
-                                            // New parameters for zoom-off sequence
+
+    // New parameters for zoom-off sequence
     private Vector3 gasStationCameraPosition; // Stores fixed position for gas station view
     private bool isCameraFixedAtGasStation = false;
+    private GameObject spawnedCharacter = null; // NEW: Reference to spawned character
+    private bool isCharacterAnimating = false; // NEW: Track character animation state
     public float zoomOffSpeed = 30f; // How fast the car zooms off-screen
     public float zoomOffDistance = 20f; // How far to the right the car goes when zooming off
     public float cameraFollowThreshold = 5f; // Distance threshold after which camera stops following
@@ -211,11 +222,8 @@ public class GameController : MonoBehaviour
             SetupRepeatingBackground();
         }
 
-        // Start gameplay music
-        if (MusicController.Instance != null)
-        {
-            MusicController.Instance.PlayGameplayMusic();
-        }
+        // MODIFIED: Ensure MusicController is ready and start music/ambiance
+        StartCoroutine(InitializeAudioSystem());
 
         // Start the countdown sequence
         StartCoroutine(StartCountdownSequence());
@@ -229,6 +237,8 @@ public class GameController : MonoBehaviour
 
         // Initially hide gameplay UI (will be shown after countdown)
         HideGameplayUIDuringCountdown();
+
+        SetupPauseSystem();
 
         // Ensure leaderboard is hidden during gameplay
         if (leaderboardManager != null)
@@ -288,6 +298,28 @@ public class GameController : MonoBehaviour
         SetupPlayerAnimation();
 
         LoadBestTime();
+
+        // REMOVED: Don't play countdown SFX immediately in Start()
+        // The countdown SFX will be played in the StartCountdownSequence() coroutine
+    }
+
+    // NEW: Add this coroutine to properly initialize audio system
+    private IEnumerator InitializeAudioSystem()
+    {
+        // Wait one frame to ensure everything is loaded
+        yield return null;
+
+        // Ensure MusicController instance exists and is ready
+        if (MusicController.Instance != null)
+        {
+            // Start gameplay music and ambiance
+            MusicController.Instance.PlayGameplayMusic();
+            Debug.Log("Audio system initialized successfully");
+        }
+        else
+        {
+            Debug.LogError("MusicController.Instance is null! Make sure MusicController exists in the scene.");
+        }
     }
     // Helper method to calculate current vertical movement speed based on gear
     // Helper method to calculate current vertical movement speed based on gear
@@ -393,6 +425,21 @@ public class GameController : MonoBehaviour
             {
                 boostChargesText.color = Color.white; // White when no charges
             }
+        }
+    }
+
+    private void SetupPauseSystem()
+    {
+        // Find pause menu controller if not assigned
+        if (pauseMenuController == null)
+        {
+            pauseMenuController = FindObjectOfType<PauseMenuController>();
+        }
+
+        // Initially disable pause during countdown
+        if (pauseMenuController != null)
+        {
+            pauseMenuController.DisablePause();
         }
     }
 
@@ -800,6 +847,66 @@ public class GameController : MonoBehaviour
         }
     }
 
+    // NEW: Coroutine to animate the character sprite
+    IEnumerator AnimateCharacter()
+    {
+        while (isCharacterAnimating && spawnedCharacter != null)
+        {
+            // Get the obstacle animation component (reusing existing system)
+            ObstacleAnimation characterAnimation = spawnedCharacter.GetComponent<ObstacleAnimation>();
+            if (characterAnimation != null)
+            {
+                characterAnimation.SwapFrame();
+            }
+
+            // Wait before next frame swap
+            yield return new WaitForSeconds(characterAnimationFrameRate);
+        }
+    }
+
+    // NEW: Method to spawn and setup the character
+    // NEW: Method to spawn character at gas station (without fade-in effect)
+    private void SpawnCharacterForGasStation(Vector3 position)
+    {
+        if (characterPrefab == null) return;
+
+        // Spawn the character at the specified position
+        spawnedCharacter = Instantiate(characterPrefab, position, Quaternion.identity);
+
+        // Add ObstacleAnimation component if it doesn't exist
+        ObstacleAnimation characterAnimation = spawnedCharacter.GetComponent<ObstacleAnimation>();
+        if (characterAnimation == null)
+        {
+            characterAnimation = spawnedCharacter.AddComponent<ObstacleAnimation>();
+        }
+
+        // Make character initially transparent (will fade in with the background)
+        SpriteRenderer characterRenderer = spawnedCharacter.GetComponent<SpriteRenderer>();
+        if (characterRenderer != null)
+        {
+            Color transparent = characterRenderer.color;
+            transparent.a = 0f;
+            characterRenderer.color = transparent;
+        }
+
+        // Start character animation immediately
+        isCharacterAnimating = true;
+        StartCoroutine(AnimateCharacter());
+
+        Debug.Log("Character spawned at gas station and animation started");
+    }
+
+    // NEW: Method to cleanup character when needed
+    private void CleanupCharacter()
+    {
+        if (spawnedCharacter != null)
+        {
+            isCharacterAnimating = false;
+            Destroy(spawnedCharacter);
+            spawnedCharacter = null;
+            Debug.Log("Character cleaned up");
+        }
+    }
 
     // Setup repeating background
     void SetupRepeatingBackground()
@@ -867,6 +974,15 @@ public class GameController : MonoBehaviour
             }
         }
 
+        if (pauseMenuController != null && pauseMenuController.IsPaused())
+        {
+            return;
+        }
+
+        // Only increment timer if the player hasn't won, timer hasn't been stopped, AND game has started
+        if (!timerStopped && gameStarted)
+            gameTimer += Time.deltaTime;
+
         // Handle player movement with gear-based vertical speed
         float verticalInput = Input.GetAxis("Vertical"); // Uses Up/Down arrows or W/S keys
         float newYPosition = playerCar.transform.position.y + (verticalInput * currentVerticalMoveSpeed * Time.deltaTime);
@@ -882,27 +998,29 @@ public class GameController : MonoBehaviour
 
         // In the Update() method, find this section and modify it:
 
-        // Handle gear changes (left/right)
-        if (Input.GetKeyDown(KeyCode.RightArrow) && currentGear < gearSpeeds.Length - 1)
+        // Handle gear changes (left/right) - FIXED: Added parentheses for correct operator precedence
+        if ((Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) && currentGear < gearSpeeds.Length - 1)
         {
             currentGear++;
             UpdateGearText();
 
-            // NEW: Play gear change sound with pitch based on new gear
+            // Play gear change sound with pitch based on new gear
             if (MusicController.Instance != null)
             {
                 MusicController.Instance.PlayGearChangeSFX(currentGear);
+                Debug.Log($"Gear UP to {currentGear + 1} - Playing gear change SFX");
             }
         }
-        else if (Input.GetKeyDown(KeyCode.LeftArrow) && currentGear > 0)
+        else if ((Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) && currentGear > 0)
         {
             currentGear--;
             UpdateGearText();
 
-            // NEW: Play gear change sound with pitch based on new gear
+            // Play gear change sound with pitch based on new gear
             if (MusicController.Instance != null)
             {
                 MusicController.Instance.PlayGearChangeSFX(currentGear);
+                Debug.Log($"Gear DOWN to {currentGear + 1} - Playing gear change SFX");
             }
         }
 
@@ -981,6 +1099,7 @@ public class GameController : MonoBehaviour
     }
 
     // New coroutine to handle the countdown sequence
+    // New coroutine to handle the countdown sequence
     IEnumerator StartCountdownSequence()
     {
         isCountdownActive = true;
@@ -998,6 +1117,13 @@ public class GameController : MonoBehaviour
             countdownText.alignment = TextAlignmentOptions.Center;
         }
 
+        // NEW: Play the full countdown SFX sequence ONCE at the beginning
+        if (MusicController.Instance != null)
+        {
+            MusicController.Instance.PlayCountdownFullSFX();
+            Debug.Log("Started full countdown SFX sequence");
+        }
+
         // Countdown from 3 to 1
         for (int i = 3; i >= 1; i--)
         {
@@ -1011,6 +1137,9 @@ public class GameController : MonoBehaviour
                 countdownText.DOColor(countdownColor, 0.1f);
             }
 
+            // REMOVED: No longer play individual SFX for each number
+            // The full audio file is already playing
+
             yield return new WaitForSeconds(countdownDuration);
         }
 
@@ -1022,6 +1151,9 @@ public class GameController : MonoBehaviour
             countdownText.transform.DOScale(1.2f, 0.3f).SetEase(Ease.OutElastic);
             countdownText.DOColor(Color.green, 0.1f);
         }
+
+        // REMOVED: No longer play separate "GO!" SFX
+        // The full audio file includes this
 
         yield return new WaitForSeconds(countdownDuration);
 
@@ -1043,6 +1175,11 @@ public class GameController : MonoBehaviour
         // Mark game as started
         isCountdownActive = false;
         gameStarted = true;
+
+        if (pauseMenuController != null)
+        {
+            pauseMenuController.EnablePause();
+        }
 
         Debug.Log("Countdown complete - Game started!");
     }
@@ -1465,6 +1602,11 @@ public class GameController : MonoBehaviour
 
     private void Win()
     {
+
+        if (pauseMenuController != null)
+        {
+            pauseMenuController.DisablePause();
+        }
         timerStopped = true; // Stop the timer immediately when goal is reached
         hasWon = true; // Set hasWon immediately so timer stops at the exact moment
 
@@ -1480,6 +1622,8 @@ public class GameController : MonoBehaviour
             MusicController.Instance.FadeToWinMusic();
             MusicController.Instance.PlayWinSFX();
         }
+
+
 
         // Hide gameplay UI elements when win animation starts
         HideGameplayUI();
@@ -1804,7 +1948,14 @@ public class GameController : MonoBehaviour
                 stationRenderer.color = transparent;
             }
         }
-
+        // NEW: Spawn the character BEFORE the fade transition starts
+        // This way the character will be visible when the gas station fades in
+        Vector3 characterSpawnPosition = new Vector3(
+            Camera.main.transform.position.x + finalParkPosition + characterOffset.x,
+            minYPosition + (laneWidth * 0.25f) + characterOffset.y,
+            characterOffset.z
+        );
+        SpawnCharacterForGasStation(characterSpawnPosition);
         // Fade between backgrounds
         timer = 0f;
         while (timer < gasStationTransitionTime)
@@ -1870,6 +2021,18 @@ public class GameController : MonoBehaviour
                 }
             }
 
+            // NEW: Fade in the character alongside everything else
+            if (spawnedCharacter != null)
+            {
+                SpriteRenderer characterRenderer = spawnedCharacter.GetComponent<SpriteRenderer>();
+                if (characterRenderer != null)
+                {
+                    Color fadeColor = characterRenderer.color;
+                    fadeColor.a = t;
+                    characterRenderer.color = fadeColor;
+                }
+            }
+
             // Update timer
             timer += Time.deltaTime;
             yield return null;
@@ -1927,6 +2090,18 @@ public class GameController : MonoBehaviour
                 Color fadeColor = stationRenderer.color;
                 fadeColor.a = 1f;
                 stationRenderer.color = fadeColor;
+            }
+        }
+
+        // NEW: Ensure character is fully visible
+        if (spawnedCharacter != null)
+        {
+            SpriteRenderer characterRenderer = spawnedCharacter.GetComponent<SpriteRenderer>();
+            if (characterRenderer != null)
+            {
+                Color fadeColor = characterRenderer.color;
+                fadeColor.a = 1f;
+                characterRenderer.color = fadeColor;
             }
         }
         // Lock camera position at gas station 
@@ -2031,6 +2206,7 @@ public class GameController : MonoBehaviour
             playerCar.transform.DOPunchScale(new Vector3(0.2f, 0.2f, 0), 0.5f, 10, 0.5f)
                 .SetEase(Ease.OutElastic);
         }
+
         // Wait a moment before showing win panel
         yield return new WaitForSeconds(0.5f);
 
@@ -2183,47 +2359,7 @@ public class GameController : MonoBehaviour
         }
     }
 
-    // Add this method to cull obstacles outside the play area
-    private void CullObstaclesOutsidePlayArea()
-    {
-        List<Transform> obstaclesToDestroy = new List<Transform>();
 
-        foreach (Transform obstacle in obstacleParent)
-        {
-            if (obstacle == null) continue;
-
-            // Skip obstacle sets (they manage their own children)
-            if (obstacle == currentObstacleSet) continue;
-
-            // Check if obstacle is outside the vertical play boundaries
-            float obstacleY = obstacle.position.y;
-
-            // Add a small buffer to the boundaries to account for obstacle size
-            float buffer = 0.5f; // Adjust this value based on your obstacle sizes
-            float effectiveMinY = minYPosition - buffer;
-            float effectiveMaxY = maxYPosition + buffer;
-
-            if (obstacleY < effectiveMinY || obstacleY > effectiveMaxY)
-            {
-                Debug.Log($"Culling obstacle outside play area at Y: {obstacleY:F2} (valid range: {effectiveMinY:F2} to {effectiveMaxY:F2})");
-                obstaclesToDestroy.Add(obstacle);
-            }
-        }
-
-        // Destroy obstacles that are outside the play area
-        foreach (Transform obstacle in obstaclesToDestroy)
-        {
-            if (obstacle != null)
-            {
-                Destroy(obstacle.gameObject);
-            }
-        }
-
-        if (obstaclesToDestroy.Count > 0)
-        {
-            Debug.Log($"Culled {obstaclesToDestroy.Count} obstacles outside play area");
-        }
-    }
 
     // Call this from a collision detection script on the player
     public void OnPlayerHitObstacle(GameObject hitObstacle)
@@ -2234,6 +2370,12 @@ public class GameController : MonoBehaviour
         if (isBoostActive)
         {
             Debug.Log("Obstacle destroyed by boost!");
+
+            // NEW: Play special boost collision sound effect
+            if (MusicController.Instance != null)
+            {
+                MusicController.Instance.PlayBoostCollisionSFX();
+            }
 
             // Destroy the obstacle
             if (hitObstacle != null)
@@ -2248,7 +2390,7 @@ public class GameController : MonoBehaviour
             return; // Don't halt or reset gear during boost
         }
 
-        // ADD THIS LINE: Play obstacle hit sound effect
+        // Play regular obstacle hit sound effect for normal collisions
         if (MusicController.Instance != null)
         {
             MusicController.Instance.PlayObstacleHitSFX();
@@ -2372,10 +2514,14 @@ public class GameController : MonoBehaviour
     }
 
     // UI button functions
+    // UI button functions
     public void RestartGame()
     {
         // Reset obstacle system
         ResetObstacleSystem();
+
+        // NEW: Cleanup character if it exists
+        CleanupCharacter();
 
         // Show gameplay UI elements on restart
         ShowGameplayUI();
@@ -2390,6 +2536,12 @@ public class GameController : MonoBehaviour
         if (trafficLightOverlay != null)
         {
             trafficLightOverlay.ResetSpawner();
+        }
+
+        // NEW: Reset pause system
+        if (pauseMenuController != null)
+        {
+            pauseMenuController.DisablePause(); // Will be re-enabled after countdown
         }
 
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);

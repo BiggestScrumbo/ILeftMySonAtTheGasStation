@@ -5,12 +5,20 @@ public class MusicController : MonoBehaviour
 {
     [Header("Audio Sources")]
     [SerializeField] private AudioSource musicSource;
-    [SerializeField] private AudioSource sfxSource;
+    [SerializeField] private AudioSource sfxSource; // Will also handle ambiance
 
     [Header("Background Music")]
     [SerializeField] private AudioClip titleScreenMusic;
     [SerializeField] private AudioClip gameplayMusic;
     [SerializeField] private AudioClip winScreenMusic;
+
+    [Header("Ambiance")]
+    [SerializeField] private AudioClip busyStreetAmbiance;
+    [SerializeField] private AudioClip titleScreenAmbiance; // Optional: Different ambiance for title screen
+    [SerializeField] private AudioClip winScreenAmbiance; // Optional: Different ambiance for win screen
+    [SerializeField] private bool playAmbianceDuringTitle = true;
+    [SerializeField] private bool playAmbianceDuringGameplay = true;
+    [SerializeField] private bool playAmbianceDuringWin = true;
 
     [Header("Sound Effects")]
     [SerializeField] private AudioClip buttonClickSFX;
@@ -20,13 +28,32 @@ public class MusicController : MonoBehaviour
     [SerializeField] private AudioClip boostActiveSFX;
     [SerializeField] private AudioClip gameOverSFX;
     [SerializeField] private AudioClip winSFX;
+    [SerializeField] private AudioClip boostCollisionSFX; // NEW: Special sound for boost collisions
+
+    [Header("Countdown SFX")] // Countdown sound effects section
+    [SerializeField] private AudioClip countdownFullSFX; // NEW: Single audio file with "3", "2", "1", "GO!"
+    [SerializeField] private bool useCountdownSFX = true; // Toggle countdown sounds on/off
+
+    // Remove the old individual countdown clips:
+    // [SerializeField] private AudioClip countdownNumberSFX; // REMOVED
+    // [SerializeField] private AudioClip countdownGoSFX; // REMOVED
 
     [Header("Individual SFX Volume Controls")]
-    [SerializeField][Range(0f, 2f)] private float obstacleHitVolume = 2f; // Adjustable in Inspector
-    [SerializeField][Range(0f, 1f)] private float gearChangeVolume = 1.0f;
-    [SerializeField][Range(0f, 1f)] private float boostCollectVolume = 1.0f;
-    [SerializeField][Range(0f, 1f)] private float boostActiveVolume = 1.0f;
-    // Add more individual volumes as needed
+    [SerializeField][Range(0f, 2f)] private float obstacleHitVolume = 1.2f; // Reduced from 2f
+    [SerializeField][Range(0f, 1f)] private float gearChangeVolume = 0.6f; // Reduced from 1.0f
+    [SerializeField][Range(0f, 1f)] private float boostCollectVolume = 0.7f; // Reduced from 1.0f
+    [SerializeField][Range(0f, 1f)] private float boostActiveVolume = 0.8f; // Reduced from 1.0f
+    [SerializeField][Range(0f, 1f)] private float buttonClickVolume = 0.5f; // Add button click volume
+    [SerializeField][Range(0f, 1f)] private float gameOverVolume = 1.0f; // Add game over volume
+    [SerializeField][Range(0f, 1f)] private float winVolume = 1.0f; // Add win volume
+    [SerializeField][Range(0f, 1f)] private float countdownVolume = 1.0f; // Countdown volume control
+    [SerializeField][Range(0f, 1f)] private float boostCollisionVolume = 1.5f; // NEW: Boost collision volume (louder for impact)
+    [SerializeField][Range(0f, 1f)] private float ambianceVolumeMultiplier = 0.8f; // Increased from 0.5f
+
+    [Header("Ambiance Ducking")]
+    [SerializeField] private bool enableAmbianceDucking = true; // NEW: Enable ducking
+    [SerializeField][Range(0f, 1f)] private float duckingAmount = 0.3f; // NEW: How much to reduce ambiance during SFX
+    [SerializeField] private float duckingFadeTime = 0.1f; // NEW: How quickly to duck/unduck
 
     [Header("Gear Change Pitch Settings")]
     [SerializeField] private float[] gearPitches = { 0.8f, 0.9f, 1.0f, 1.1f, 1.2f }; // Pitch for each gear (1-5)
@@ -40,9 +67,13 @@ public class MusicController : MonoBehaviour
     // Singleton pattern for easy access
     public static MusicController Instance { get; private set; }
 
-    // Current music state tracking
+    // Current music and ambiance state tracking
     private AudioClip currentMusic;
+    private AudioClip currentAmbiance; // Track current ambiance clip
     private bool isFading = false;
+    private bool isAmbiancePlaying = false;
+    private bool isAmbianceDucked = false; // NEW: Track ducking state
+    private float originalAmbianceVolume; // NEW: Store original ambiance volume
 
     private void Awake()
     {
@@ -73,7 +104,7 @@ public class MusicController : MonoBehaviour
         if (sfxSource == null)
         {
             sfxSource = gameObject.AddComponent<AudioSource>();
-            sfxSource.loop = false;
+            sfxSource.loop = false; // Will be set to true for ambiance
             sfxSource.playOnAwake = false;
             sfxSource.volume = sfxVolume;
         }
@@ -87,6 +118,13 @@ public class MusicController : MonoBehaviour
         {
             PlayMusic(titleScreenMusic);
         }
+
+        // Play title screen ambiance
+        if (playAmbianceDuringTitle)
+        {
+            AudioClip ambianceToPlay = titleScreenAmbiance != null ? titleScreenAmbiance : busyStreetAmbiance;
+            PlayAmbiance(ambianceToPlay);
+        }
     }
 
     public void PlayGameplayMusic()
@@ -94,6 +132,12 @@ public class MusicController : MonoBehaviour
         if (gameplayMusic != null)
         {
             PlayMusic(gameplayMusic);
+        }
+
+        // Play gameplay ambiance
+        if (playAmbianceDuringGameplay)
+        {
+            PlayAmbiance(busyStreetAmbiance);
         }
     }
 
@@ -103,6 +147,13 @@ public class MusicController : MonoBehaviour
         {
             PlayMusic(winScreenMusic);
         }
+
+        // Play win screen ambiance
+        if (playAmbianceDuringWin)
+        {
+            AudioClip ambianceToPlay = winScreenAmbiance != null ? winScreenAmbiance : busyStreetAmbiance;
+            PlayAmbiance(ambianceToPlay);
+        }
     }
 
     public void FadeToWinMusic()
@@ -110,6 +161,13 @@ public class MusicController : MonoBehaviour
         if (winScreenMusic != null && !isFading)
         {
             StartCoroutine(FadeToNewMusic(winScreenMusic));
+        }
+
+        // Transition ambiance for win screen
+        if (playAmbianceDuringWin)
+        {
+            AudioClip ambianceToPlay = winScreenAmbiance != null ? winScreenAmbiance : busyStreetAmbiance;
+            PlayAmbiance(ambianceToPlay);
         }
     }
 
@@ -178,93 +236,298 @@ public class MusicController : MonoBehaviour
 
     #endregion
 
+    #region Ambiance Control
+
+    // Play ambiance using the SFX source
+    // In the PlayAmbiance method, add some additional safety checks:
+    private void PlayAmbiance(AudioClip newClip)
+    {
+        if (newClip == null) return;
+
+        // If same ambiance is already playing, don't restart
+        if (newClip == currentAmbiance && isAmbiancePlaying && sfxSource.isPlaying) return;
+
+        // Stop current ambiance if playing
+        if (isAmbiancePlaying)
+        {
+            StopAmbiance();
+        }
+
+        // Setup SFX source for ambiance playback
+        sfxSource.clip = newClip;
+        sfxSource.loop = true; // Enable looping for ambiance
+        originalAmbianceVolume = sfxVolume * ambianceVolumeMultiplier;
+        sfxSource.volume = originalAmbianceVolume;
+        sfxSource.pitch = 1.0f; // Reset pitch for ambiance
+
+        // Additional safety: ensure the clip itself is set to loop in Unity
+        if (newClip != null)
+        {
+            // Force loop setting (this ensures the AudioSource respects the loop setting)
+            sfxSource.loop = true;
+        }
+
+        sfxSource.Play();
+
+        currentAmbiance = newClip;
+        isAmbiancePlaying = true;
+        isAmbianceDucked = false;
+
+        Debug.Log($"Playing ambiance: {newClip.name} at volume {originalAmbianceVolume:F2} - Loop enabled: {sfxSource.loop}");
+    }
+
+    // Stop ambiance
+    public void StopAmbiance()
+    {
+        if (isAmbiancePlaying)
+        {
+            sfxSource.Stop();
+            sfxSource.loop = false; // Reset loop for future SFX
+            sfxSource.volume = sfxVolume; // Reset volume for future SFX
+            currentAmbiance = null;
+            isAmbiancePlaying = false;
+            isAmbianceDucked = false;
+            Debug.Log("Ambiance stopped");
+        }
+    }
+
+    // Pause ambiance
+    public void PauseAmbiance()
+    {
+        if (isAmbiancePlaying)
+        {
+            sfxSource.Pause();
+        }
+    }
+
+    // Resume ambiance
+    public void ResumeAmbiance()
+    {
+        if (isAmbiancePlaying)
+        {
+            sfxSource.UnPause();
+        }
+    }
+
+    // NEW: Duck ambiance volume for SFX
+    private void DuckAmbiance()
+    {
+        if (isAmbiancePlaying && enableAmbianceDucking && !isAmbianceDucked)
+        {
+            isAmbianceDucked = true;
+            float targetVolume = originalAmbianceVolume * duckingAmount;
+            StartCoroutine(FadeAmbianceVolume(targetVolume, duckingFadeTime));
+        }
+    }
+
+    // NEW: Restore ambiance volume after SFX
+    private void RestoreAmbiance()
+    {
+        if (isAmbiancePlaying && enableAmbianceDucking && isAmbianceDucked)
+        {
+            isAmbianceDucked = false;
+            StartCoroutine(FadeAmbianceVolume(originalAmbianceVolume, duckingFadeTime));
+        }
+    }
+
+    // NEW: Fade ambiance volume smoothly
+    private IEnumerator FadeAmbianceVolume(float targetVolume, float duration)
+    {
+        float startVolume = sfxSource.volume;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < duration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = elapsedTime / duration;
+            sfxSource.volume = Mathf.Lerp(startVolume, targetVolume, progress);
+            yield return null;
+        }
+
+        sfxSource.volume = targetVolume;
+    }
+
+    // Play busy street ambiance directly
+    public void PlayBusyStreetAmbiance()
+    {
+        PlayAmbiance(busyStreetAmbiance);
+    }
+
+    // Fade ambiance volume (useful for special moments)
+
+    private IEnumerator FadeAmbianceCoroutine(float targetVolumeMultiplier, float duration)
+    {
+        float startVolume = sfxSource.volume;
+        float targetVolume = sfxVolume * targetVolumeMultiplier;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < duration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = elapsedTime / duration;
+            sfxSource.volume = Mathf.Lerp(startVolume, targetVolume, progress);
+            yield return null;
+        }
+
+        sfxSource.volume = targetVolume;
+    }
+
+    #endregion
+
     #region Sound Effects
 
+    // Modified SFX methods to use individual volume controls and ducking
     public void PlayButtonClickSFX()
     {
-        PlaySFX(buttonClickSFX);
+        PlaySFXWithVolume(buttonClickSFX, buttonClickVolume);
     }
 
     public void PlayGearChangeSFX()
     {
-        PlaySFX(gearChangeSFX);
+        PlaySFXWithVolume(gearChangeSFX, gearChangeVolume);
     }
 
-    // NEW: Gear change with specific pitch based on gear number
     public void PlayGearChangeSFX(int gearIndex)
     {
-        if (gearChangeSFX != null && sfxSource != null)
+        if (gearChangeSFX != null)
         {
             // Calculate pitch based on gear
-            float pitch = 1.0f; // Default pitch
+            float pitch = 1.0f;
 
             if (useGearPitchVariation && gearIndex >= 0 && gearIndex < gearPitches.Length)
             {
                 pitch = gearPitches[gearIndex];
             }
 
-            // Play with specific pitch
-            PlaySFXWithPitch(gearChangeSFX, pitch);
+            // Play with specific pitch and volume
+            PlaySFXWithPitchAndVolume(gearChangeSFX, pitch, gearChangeVolume);
         }
     }
 
     public void PlayObstacleHitSFX()
     {
-        PlaySFX(obstacleHitSFX);
+        PlaySFXWithVolume(obstacleHitSFX, obstacleHitVolume);
     }
 
     public void PlayBoostCollectSFX()
     {
-        PlaySFX(boostCollectSFX);
+        PlaySFXWithVolume(boostCollectSFX, boostCollectVolume);
     }
 
     public void PlayBoostActiveSFX()
     {
-        PlaySFX(boostActiveSFX);
+        PlaySFXWithVolume(boostActiveSFX, boostActiveVolume);
     }
 
     public void PlayGameOverSFX()
     {
-        PlaySFX(gameOverSFX);
+        PlaySFXWithVolume(gameOverSFX, gameOverVolume);
     }
 
     public void PlayWinSFX()
     {
-        PlaySFX(winSFX);
+        PlaySFXWithVolume(winSFX, winVolume);
     }
 
+    // NEW: Play the full countdown sequence SFX (replaces the old individual methods)
+    public void PlayCountdownFullSFX()
+    {
+        if (useCountdownSFX && countdownFullSFX != null)
+        {
+            PlaySFXWithVolume(countdownFullSFX, countdownVolume);
+            Debug.Log("Playing full countdown SFX sequence");
+        }
+    }
+
+    // DEPRECATED: Keep these methods for backward compatibility but make them do nothing
+    public void PlayCountdownNumberSFX()
+    {
+        // This method is now deprecated - use PlayCountdownFullSFX() instead
+        Debug.Log("PlayCountdownNumberSFX called but deprecated - use PlayCountdownFullSFX() instead");
+    }
+
+    public void PlayCountdownGoSFX()
+    {
+        // This method is now deprecated - use PlayCountdownFullSFX() instead
+        Debug.Log("PlayCountdownGoSFX called but deprecated - use PlayCountdownFullSFX() instead");
+    }
+
+    // NEW: Play SFX with individual volume control
+    private void PlaySFXWithVolume(AudioClip clip, float volumeMultiplier)
+    {
+        if (clip != null && sfxSource != null)
+        {
+            // Duck ambiance if enabled
+            if (isAmbiancePlaying)
+            {
+                DuckAmbiance();
+            }
+
+            // Create a temporary AudioSource for the SFX to avoid conflicts
+            GameObject tempSFX = new GameObject("TempSFX");
+            AudioSource tempSource = tempSFX.AddComponent<AudioSource>();
+            tempSource.clip = clip;
+            tempSource.volume = sfxVolume * volumeMultiplier;
+            tempSource.pitch = 1.0f;
+            tempSource.Play();
+
+            // Schedule cleanup and ambiance restoration
+            StartCoroutine(CleanupTempSFX(tempSFX, clip.length));
+        }
+    }
+
+    // NEW: Play SFX with pitch and volume control
+    private void PlaySFXWithPitchAndVolume(AudioClip clip, float pitch, float volumeMultiplier)
+    {
+        if (clip != null && sfxSource != null)
+        {
+            // Duck ambiance if enabled
+            if (isAmbiancePlaying)
+            {
+                DuckAmbiance();
+            }
+
+            // Create a temporary AudioSource for the SFX to avoid conflicts
+            GameObject tempSFX = new GameObject("TempSFX");
+            AudioSource tempSource = tempSFX.AddComponent<AudioSource>();
+            tempSource.clip = clip;
+            tempSource.volume = sfxVolume * volumeMultiplier;
+            tempSource.pitch = pitch;
+            tempSource.Play();
+
+            // Schedule cleanup and ambiance restoration
+            StartCoroutine(CleanupTempSFX(tempSFX, clip.length));
+        }
+    }
+
+    // NEW: Cleanup temporary SFX and restore ambiance
+    private IEnumerator CleanupTempSFX(GameObject tempSFX, float clipLength)
+    {
+        // Wait for the SFX to finish
+        yield return new WaitForSeconds(clipLength);
+
+        // Restore ambiance volume
+        if (isAmbiancePlaying)
+        {
+            RestoreAmbiance();
+        }
+
+        // Cleanup the temporary AudioSource
+        if (tempSFX != null)
+        {
+            Destroy(tempSFX);
+        }
+    }
+
+    // Legacy methods for backward compatibility
     private void PlaySFX(AudioClip clip)
     {
-        if (clip != null && sfxSource != null)
-        {
-            // Reset pitch to normal before playing
-            sfxSource.pitch = 1.0f;
-            sfxSource.PlayOneShot(clip);
-        }
+        PlaySFXWithVolume(clip, 1.0f);
     }
 
-    // NEW: Play SFX with specific pitch
     private void PlaySFXWithPitch(AudioClip clip, float pitch)
     {
-        if (clip != null && sfxSource != null)
-        {
-            // Set the pitch
-            sfxSource.pitch = pitch;
-            sfxSource.PlayOneShot(clip);
-
-            // Reset pitch back to normal after playing for other SFX
-            StartCoroutine(ResetPitchAfterClip(clip.length));
-        }
-    }
-
-    // Coroutine to reset pitch after the clip finishes
-    private IEnumerator ResetPitchAfterClip(float clipLength)
-    {
-        yield return new WaitForSeconds(clipLength);
-        if (sfxSource != null)
-        {
-            sfxSource.pitch = 1.0f;
-        }
+        PlaySFXWithPitchAndVolume(clip, pitch, 1.0f);
     }
 
     #endregion
@@ -283,14 +546,40 @@ public class MusicController : MonoBehaviour
     public void SetSFXVolume(float volume)
     {
         sfxVolume = Mathf.Clamp01(volume);
-        if (sfxSource != null)
+
+        // Update ambiance volume if playing
+        if (isAmbiancePlaying)
         {
-            sfxSource.volume = sfxVolume;
+            originalAmbianceVolume = sfxVolume * ambianceVolumeMultiplier;
+            if (!isAmbianceDucked)
+            {
+                sfxSource.volume = originalAmbianceVolume;
+            }
+        }
+    }
+
+    // Set ambiance volume multiplier
+    public void SetAmbianceVolumeMultiplier(float multiplier)
+    {
+        ambianceVolumeMultiplier = Mathf.Clamp01(multiplier);
+
+        // Update current ambiance volume if playing
+        if (isAmbiancePlaying)
+        {
+            originalAmbianceVolume = sfxVolume * ambianceVolumeMultiplier;
+            if (!isAmbianceDucked)
+            {
+                sfxSource.volume = originalAmbianceVolume;
+            }
         }
     }
 
     public float GetMusicVolume() => musicVolume;
     public float GetSFXVolume() => sfxVolume;
+    public float GetAmbianceVolumeMultiplier() => ambianceVolumeMultiplier;
+
+    // Helper method to get effective ambiance volume
+    public float GetAmbianceVolume() => sfxVolume * ambianceVolumeMultiplier;
 
     #endregion
 
@@ -301,7 +590,7 @@ public class MusicController : MonoBehaviour
     {
         if (gearIndex >= 0 && gearIndex < gearPitches.Length)
         {
-            gearPitches[gearIndex] = Mathf.Clamp(pitch, 0.1f, 3.0f); // Reasonable pitch range
+            gearPitches[gearIndex] = Mathf.Clamp(pitch, 0.1f, 3.0f);
         }
     }
 
@@ -312,7 +601,37 @@ public class MusicController : MonoBehaviour
         {
             return gearPitches[gearIndex];
         }
-        return 1.0f; // Default pitch
+        return 1.0f;
+    }
+
+    // NEW: Boost collision SFX method
+    public void PlayBoostCollisionSFX()
+    {
+        if (boostCollisionSFX != null)
+        {
+            PlaySFXWithVolume(boostCollisionSFX, boostCollisionVolume);
+        }
+    }
+
+    #endregion
+
+    #region Public Helper Methods
+
+    // Check if ambiance is currently playing
+    public bool IsAmbiancePlaying() => isAmbiancePlaying;
+
+    // Get current ambiance clip
+    public AudioClip GetCurrentAmbiance() => currentAmbiance;
+
+    // NEW: Control ducking settings
+    public void SetDuckingEnabled(bool enabled)
+    {
+        enableAmbianceDucking = enabled;
+    }
+
+    public void SetDuckingAmount(float amount)
+    {
+        duckingAmount = Mathf.Clamp01(amount);
     }
 
     #endregion
