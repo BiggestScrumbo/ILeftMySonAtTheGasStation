@@ -130,7 +130,8 @@ public class ObstacleCollision : MonoBehaviour
         }
     }
 
-    private void PlayExplosionAnimation(Vector2 position)
+    // Change this method from private to public
+    public void PlayExplosionAnimation(Vector2 position)
     {
         Debug.Log("PlayExplosionAnimation called at: " + position);
 

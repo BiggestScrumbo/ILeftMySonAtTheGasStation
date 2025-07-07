@@ -46,6 +46,12 @@ public class GameController : MonoBehaviour
     private bool isBoostActive = false; // Whether boost is currently active
     private float boostTimer = 0f; // Timer for boost duration
 
+    [Header("Boost Visual Effects")]
+    public ParticleSystem speedLinesParticleSystem; // Assign your speedlines particle system in inspector
+    public float speedLinesEmissionRate = 150f; // How many particles per second during boost
+    public float speedLinesIntensity = 1f; // Overall intensity multiplier
+    public bool enableSpeedLinesParticles = true; // Toggle speedlines on/off
+
     [Header("UI")]
     public TMP_Text gearText;
     public TMP_Text timerText;
@@ -240,6 +246,8 @@ public class GameController : MonoBehaviour
 
         SetupPauseSystem();
 
+        SetupSpeedLinesParticleSystem();
+
         // Ensure leaderboard is hidden during gameplay
         if (leaderboardManager != null)
         {
@@ -428,6 +436,87 @@ public class GameController : MonoBehaviour
         }
     }
 
+    private void SetupSpeedLinesParticleSystem()
+    {
+        if (speedLinesParticleSystem == null)
+        {
+            Debug.LogWarning("Speed lines particle system not assigned! Please assign the particle system in the inspector.");
+            return;
+        }
+
+        // Configure the particle system for anime-style speedlines
+        var main = speedLinesParticleSystem.main;
+        main.startLifetime = 0.8f; // How long each line lasts
+        main.startSpeed = 25f; // How fast the lines move
+        main.startSize = 0.1f; // Thickness of the lines
+        main.startColor = Color.white; // Color of the speedlines
+        main.maxParticles = 300; // Maximum number of particles
+        main.simulationSpace = ParticleSystemSimulationSpace.World; // World space for screen overlay effect
+
+        // Configure emission - start with 0
+        var emission = speedLinesParticleSystem.emission;
+        emission.rateOverTime = 0f; // Start disabled
+
+        // Configure shape to cover the screen
+        var shape = speedLinesParticleSystem.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Rectangle;
+
+        // Make the shape cover the camera view
+        Camera cam = Camera.main;
+        float height = cam.orthographicSize * 2f;
+        float width = height * cam.aspect;
+        shape.scale = new Vector3(width * 1.2f, height * 1.2f, 1f); // Slightly larger than screen
+
+        // Position the emitter to cover the screen
+        speedLinesParticleSystem.transform.position = new Vector3(cam.transform.position.x, cam.transform.position.y, 0);
+
+        // Configure velocity for forward movement (anime speedlines typically move toward the camera/viewer)
+        var velocity = speedLinesParticleSystem.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space = ParticleSystemSimulationSpace.Local;
+        velocity.z = -30f; // Move toward camera (negative Z)
+        velocity.x = new ParticleSystem.MinMaxCurve(-5f, 5f); // Small random horizontal movement
+        velocity.y = new ParticleSystem.MinMaxCurve(-2f, 2f); // Small random vertical movement
+
+        // Configure size over lifetime for tapering effect
+        var sizeOverLifetime = speedLinesParticleSystem.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        AnimationCurve sizeCurve = new AnimationCurve();
+        sizeCurve.AddKey(0f, 0f); // Start small
+        sizeCurve.AddKey(0.3f, 1f); // Grow quickly
+        sizeCurve.AddKey(1f, 0f); // Fade out
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
+
+        // Configure color over lifetime for fading effect
+        var colorOverLifetime = speedLinesParticleSystem.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        Gradient colorGradient = new Gradient();
+        colorGradient.SetKeys(
+            new GradientColorKey[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+            new GradientAlphaKey[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(0f, 1f) }
+        );
+        colorOverLifetime.color = colorGradient;
+
+        // Configure renderer for line-like appearance
+        var renderer = speedLinesParticleSystem.GetComponent<ParticleSystemRenderer>();
+        if (renderer != null)
+        {
+            renderer.renderMode = ParticleSystemRenderMode.Stretch;
+            renderer.velocityScale = 0.5f; // How much the velocity affects the stretching
+            renderer.lengthScale = 3f; // How long the stretched particles appear
+            renderer.sortingOrder = 100; // High sorting order to appear on top
+
+            // Optional: Set a material for better visual effect
+            // renderer.material = yourSpeedLinesMaterial;
+        }
+
+        // Start the system but with no emission
+        speedLinesParticleSystem.Play();
+
+        Debug.Log("Speed lines particle system configured");
+    }
+
     private void SetupPauseSystem()
     {
         // Find pause menu controller if not assigned
@@ -454,6 +543,13 @@ public class GameController : MonoBehaviour
 
         Debug.Log($"Boost activated! Charges remaining: {currentBoostCharges}");
 
+        // START: Add speedlines particle effect
+        if (enableSpeedLinesParticles && speedLinesParticleSystem != null)
+        {
+            ActivateSpeedLinesParticles();
+        }
+        // END: Add speedlines particle effect
+
         // Visual effect for player car during boost
         SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
         if (playerSprite != null)
@@ -467,13 +563,19 @@ public class GameController : MonoBehaviour
         UpdateBoostUI();
     }
 
-    // Deactivate boost mode
     private void DeactivateBoost()
     {
         isBoostActive = false;
         boostTimer = 0f;
 
         Debug.Log("Boost deactivated");
+
+        // START: Deactivate speedlines particles
+        if (speedLinesParticleSystem != null)
+        {
+            DeactivateSpeedLinesParticles();
+        }
+        // END: Deactivate speedlines particles
 
         // Stop visual effects
         SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
@@ -489,6 +591,44 @@ public class GameController : MonoBehaviour
         }
 
         UpdateBoostUI();
+    }
+
+    private void ActivateSpeedLinesParticles()
+    {
+        if (!enableSpeedLinesParticles || speedLinesParticleSystem == null) return;
+
+        // Enable emission
+        var emission = speedLinesParticleSystem.emission;
+
+        // Animate the emission rate for smooth activation
+        DOTween.To(() => emission.rateOverTime.constant,
+                   x => {
+                       var em = speedLinesParticleSystem.emission;
+                       em.rateOverTime = x * speedLinesIntensity;
+                   },
+                   speedLinesEmissionRate,
+                   0.3f)
+               .SetEase(Ease.OutQuad);
+
+        Debug.Log("Speed lines particles activated");
+    }
+    private void DeactivateSpeedLinesParticles()
+    {
+        if (speedLinesParticleSystem == null) return;
+
+        // Animate emission rate down to 0
+        var emission = speedLinesParticleSystem.emission;
+
+        DOTween.To(() => emission.rateOverTime.constant,
+                   x => {
+                       var em = speedLinesParticleSystem.emission;
+                       em.rateOverTime = x;
+                   },
+                   0f,
+                   0.5f)
+               .SetEase(Ease.InQuad);
+
+        Debug.Log("Speed lines particles deactivated");
     }
 
     // Add boost charge (called when collecting cigarette pack)
@@ -2366,54 +2506,69 @@ public class GameController : MonoBehaviour
     {
         Debug.Log("Obstacle Hit!");
 
+        // Get the ObstacleCollision component once for both cases
+        ObstacleCollision obstacleCollision = hitObstacle.GetComponent<ObstacleCollision>();
+
         // If boost is active, destroy the obstacle without penalty
         if (isBoostActive)
         {
             Debug.Log("Obstacle destroyed by boost!");
 
-            // NEW: Play special boost collision sound effect
             if (MusicController.Instance != null)
             {
                 MusicController.Instance.PlayBoostCollisionSFX();
             }
 
-            // Destroy the obstacle
+            // Trigger explosion animation before destroying obstacle
+            if (obstacleCollision != null)
+            {
+                obstacleCollision.PlayExplosionAnimation(hitObstacle.transform.position);
+            }
+
+            // Destroy the obstacle after triggering explosion
             if (hitObstacle != null)
             {
-                // Visual effect for destroying obstacle during boost
                 hitObstacle.transform.DOPunchScale(new Vector3(1.5f, 1.5f, 0), 0.2f, 10, 1f)
                     .OnComplete(() => {
                         if (hitObstacle != null)
                             Destroy(hitObstacle);
                     });
             }
-            return; // Don't halt or reset gear during boost
+            return;
         }
 
-        // Play regular obstacle hit sound effect for normal collisions
         if (MusicController.Instance != null)
         {
             MusicController.Instance.PlayObstacleHitSFX();
         }
 
-        // Don't process collisions while already halted OR invulnerable
         if (isHalted || isInvulnerable) return;
 
-        // Destroy the obstacle that was hit
-        if (hitObstacle != null)
+        // Trigger explosion animation before destroying obstacle
+        if (obstacleCollision != null)
         {
-            Destroy(hitObstacle);
+            obstacleCollision.PlayExplosionAnimation(hitObstacle.transform.position);
         }
 
-        // Start invulnerability period
-        StartInvulnerability();
+        // Destroy the obstacle after a small delay
+        if (hitObstacle != null)
+        {
+            StartCoroutine(DestroyObstacleAfterExplosion(hitObstacle, 0.1f));
+        }
 
-        // Reset gear to 1 (0-based index)
+        StartInvulnerability();
         currentGear = 0;
         UpdateGearText();
-
-        // Start the halt coroutine
         StartCoroutine(HaltPlayer());
+    }
+
+    private IEnumerator DestroyObstacleAfterExplosion(GameObject obstacle, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (obstacle != null)
+        {
+            Destroy(obstacle);
+        }
     }
     // Call this from collision detection when collecting cigarette pack
     public void OnPlayerCollectBoost(GameObject collectible)
@@ -2435,42 +2590,83 @@ public class GameController : MonoBehaviour
         }
     }
 
-    // Add this new coroutine to handle halting the player
-    IEnumerator HaltPlayer()
+   // Add this new coroutine to handle halting the player
+IEnumerator HaltPlayer()
+{
+    // Set halt state
+    isHalted = true;
+
+    // Disable player collision during spin animation
+    DisablePlayerCollisionTemporarily();
+
+    // Get the transform to animate
+    Transform playerTransform = playerCar.transform;
+
+    // Mario Kart style spin animation with DOTween
+    // Spin the car around the z-axis 3 times (1080 degrees)
+    playerTransform.DORotate(new Vector3(0, 0, 1080), haltDuration, RotateMode.FastBeyond360)
+        .SetEase(Ease.OutQuad);
+
+    // Optional: Add a little bounce effect
+    playerTransform.DOPunchScale(new Vector3(0.2f, 0.2f, 0.2f), haltDuration, 10, 1)
+        .SetEase(Ease.OutElastic);
+
+    // Optional: Visual feedback with color flashing
+    SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
+    if (playerSprite != null)
     {
-        // Set halt state
-        isHalted = true;
-
-        // Get the transform to animate
-        Transform playerTransform = playerCar.transform;
-
-        // Mario Kart style spin animation with DOTween
-        // Spin the car around the z-axis 3 times (1080 degrees)
-        playerTransform.DORotate(new Vector3(0, 0, 1080), haltDuration, RotateMode.FastBeyond360)
-            .SetEase(Ease.OutQuad);
-
-        // Optional: Add a little bounce effect
-        playerTransform.DOPunchScale(new Vector3(0.2f, 0.2f, 0.2f), haltDuration, 10, 1)
-            .SetEase(Ease.OutElastic);
-
-        // Optional: Visual feedback with color flashing
-        SpriteRenderer playerSprite = playerCar.GetComponent<SpriteRenderer>();
-        if (playerSprite != null)
-        {
-            // Flash the car sprite with DOTween
-            playerSprite.DOColor(new Color(1f, 0.5f, 0.5f), haltDuration * 0.25f)
-                .SetLoops(4, LoopType.Yoyo);
-        }
-
-        // Wait for the halt duration
-        yield return new WaitForSeconds(haltDuration);
-
-        // Reset rotation to normal when done
-        playerTransform.DORotate(Vector3.zero, 0.3f);
-
-        // Resume movement
-        isHalted = false;
+        // Flash the car sprite with DOTween
+        playerSprite.DOColor(new Color(1f, 0.5f, 0.5f), haltDuration * 0.25f)
+            .SetLoops(4, LoopType.Yoyo);
     }
+
+    // Wait for the halt duration
+    yield return new WaitForSeconds(haltDuration);
+
+    // Reset rotation to normal when done
+    playerTransform.DORotate(Vector3.zero, 0.3f);
+
+    // Re-enable player collision after spin animation
+    EnablePlayerCollision();
+
+    // Resume movement
+    isHalted = false;
+
+    Debug.Log("Player collision re-enabled after spin animation");
+}
+
+// New method to temporarily disable player collision during spin
+private void DisablePlayerCollisionTemporarily()
+{
+    // Disable all colliders attached to the player car
+    Collider2D[] colliders = playerCar.GetComponentsInChildren<Collider2D>();
+    foreach (Collider2D collider in colliders)
+    {
+        collider.enabled = false;
+    }
+
+    Debug.Log("Player collision disabled during spin animation");
+}
+
+// New method to re-enable player collision after spin
+private void EnablePlayerCollision()
+{
+    // Re-enable all colliders attached to the player car
+    Collider2D[] colliders = playerCar.GetComponentsInChildren<Collider2D>();
+    foreach (Collider2D collider in colliders)
+    {
+        collider.enabled = true;
+    }
+
+    // Make sure the collision script is enabled
+    PlayerCollision playerCollision = playerCar.GetComponent<PlayerCollision>();
+    if (playerCollision != null)
+    {
+        playerCollision.enabled = true;
+    }
+
+    Debug.Log("Player collision re-enabled");
+}
 
     // Add these public methods to your GameController class:
 

@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 1665597589725609339}
   - component: {fileID: 5104077514033892473}
   - component: {fileID: -7046726201448602066}
+  - component: {fileID: 6614101224752815152}
   m_Layer: 0
   m_Name: car_black_0
   m_TagString: Obstacle
@@ -151,3 +152,20 @@ MonoBehaviour:
   frames:
   - {fileID: 7144862528464308074, guid: a7217e002870d73468762cc8883a8075, type: 3}
   - {fileID: 2569520084964558142, guid: a7217e002870d73468762cc8883a8075, type: 3}
+--- !u!114 &6614101224752815152
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8605321774786880642}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 30132a7b503ef824eab929d739fa7d98, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  explosionPrefab: {fileID: 553635678462967271, guid: 32f0b914ae5f31443b39b8c291d7feac,
+    type: 3}
+  baseSpeed: 0
+  useCustomSpeed: 0
+  customMoveSpeed: 10

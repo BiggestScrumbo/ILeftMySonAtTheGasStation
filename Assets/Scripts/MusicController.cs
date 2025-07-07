@@ -6,6 +6,7 @@ public class MusicController : MonoBehaviour
     [Header("Audio Sources")]
     [SerializeField] private AudioSource musicSource;
     [SerializeField] private AudioSource sfxSource; // Will also handle ambiance
+    [SerializeField] private AudioSource engineSource; // NEW: Dedicated source for engine sound
 
     [Header("Background Music")]
     [SerializeField] private AudioClip titleScreenMusic;
@@ -19,6 +20,17 @@ public class MusicController : MonoBehaviour
     [SerializeField] private bool playAmbianceDuringTitle = true;
     [SerializeField] private bool playAmbianceDuringGameplay = true;
     [SerializeField] private bool playAmbianceDuringWin = true;
+
+    [Header("Engine Sound")]
+    [SerializeField] private AudioClip engineIdleSound; // NEW: Engine idle sound
+    [SerializeField] private AudioClip engineRunningSound; // NEW: Engine running sound
+    [SerializeField] private bool playEngineDuringTitle = false; // NEW: Engine sound during title screen
+    [SerializeField] private bool playEngineDuringGameplay = true; // NEW: Engine sound during gameplay
+    [SerializeField] private bool playEngineDuringWin = false; // NEW: Engine sound during win screen
+    [SerializeField][Range(0f, 1f)] private float engineVolumeMultiplier = 0.6f; // NEW: Engine volume control
+    [SerializeField] private bool enableEngineRPMVariation = true; // NEW: Enable RPM-based pitch variation
+    [SerializeField][Range(0.5f, 2.0f)] private float minEnginePitch = 0.8f; // NEW: Minimum engine pitch
+    [SerializeField][Range(0.5f, 2.0f)] private float maxEnginePitch = 1.4f; // NEW: Maximum engine pitch
 
     [Header("Sound Effects")]
     [SerializeField] private AudioClip buttonClickSFX;
@@ -70,10 +82,15 @@ public class MusicController : MonoBehaviour
     // Current music and ambiance state tracking
     private AudioClip currentMusic;
     private AudioClip currentAmbiance; // Track current ambiance clip
+    private AudioClip currentEngineSound; // NEW: Track current engine sound
     private bool isFading = false;
     private bool isAmbiancePlaying = false;
+    private bool isEnginePlaying = false; // NEW: Track engine sound state
     private bool isAmbianceDucked = false; // NEW: Track ducking state
+    private bool isEngineDucked = false; // NEW: Track engine ducking state
     private float originalAmbianceVolume; // NEW: Store original ambiance volume
+    private float originalEngineVolume; // NEW: Store original engine volume
+    private float currentEngineRPM = 0f; // NEW: Current engine RPM for pitch variation
 
     private void Awake()
     {
@@ -108,6 +125,16 @@ public class MusicController : MonoBehaviour
             sfxSource.playOnAwake = false;
             sfxSource.volume = sfxVolume;
         }
+
+        // NEW: Initialize engine audio source
+        if (engineSource == null)
+        {
+            engineSource = gameObject.AddComponent<AudioSource>();
+            engineSource.loop = true;
+            engineSource.playOnAwake = false;
+            engineSource.volume = sfxVolume * engineVolumeMultiplier;
+            engineSource.pitch = 1.0f;
+        }
     }
 
     #region Music Control
@@ -125,6 +152,17 @@ public class MusicController : MonoBehaviour
             AudioClip ambianceToPlay = titleScreenAmbiance != null ? titleScreenAmbiance : busyStreetAmbiance;
             PlayAmbiance(ambianceToPlay);
         }
+
+        // NEW: Play engine sound during title screen
+        if (playEngineDuringTitle)
+        {
+            AudioClip engineToPlay = engineIdleSound != null ? engineIdleSound : engineRunningSound;
+            PlayEngineSound(engineToPlay);
+        }
+        else
+        {
+            StopEngineSound();
+        }
     }
 
     public void PlayGameplayMusic()
@@ -138,6 +176,17 @@ public class MusicController : MonoBehaviour
         if (playAmbianceDuringGameplay)
         {
             PlayAmbiance(busyStreetAmbiance);
+        }
+
+        // NEW: Play engine sound during gameplay
+        if (playEngineDuringGameplay)
+        {
+            AudioClip engineToPlay = engineRunningSound != null ? engineRunningSound : engineIdleSound;
+            PlayEngineSound(engineToPlay);
+        }
+        else
+        {
+            StopEngineSound();
         }
     }
 
@@ -154,6 +203,17 @@ public class MusicController : MonoBehaviour
             AudioClip ambianceToPlay = winScreenAmbiance != null ? winScreenAmbiance : busyStreetAmbiance;
             PlayAmbiance(ambianceToPlay);
         }
+
+        // NEW: Play engine sound during win screen
+        if (playEngineDuringWin)
+        {
+            AudioClip engineToPlay = engineIdleSound != null ? engineIdleSound : engineRunningSound;
+            PlayEngineSound(engineToPlay);
+        }
+        else
+        {
+            StopEngineSound();
+        }
     }
 
     public void FadeToWinMusic()
@@ -168,6 +228,17 @@ public class MusicController : MonoBehaviour
         {
             AudioClip ambianceToPlay = winScreenAmbiance != null ? winScreenAmbiance : busyStreetAmbiance;
             PlayAmbiance(ambianceToPlay);
+        }
+
+        // NEW: Transition engine sound for win screen
+        if (playEngineDuringWin)
+        {
+            AudioClip engineToPlay = engineIdleSound != null ? engineIdleSound : engineRunningSound;
+            PlayEngineSound(engineToPlay);
+        }
+        else
+        {
+            StopEngineSound();
         }
     }
 
@@ -232,6 +303,124 @@ public class MusicController : MonoBehaviour
     public void ResumeMusic()
     {
         musicSource.UnPause();
+    }
+
+    #endregion
+
+    #region Engine Sound Control
+
+    // NEW: Play engine sound using dedicated engine source
+    private void PlayEngineSound(AudioClip newClip)
+    {
+        if (newClip == null) return;
+
+        // If same engine sound is already playing, don't restart
+        if (newClip == currentEngineSound && isEnginePlaying && engineSource.isPlaying) return;
+
+        // Stop current engine sound if playing
+        if (isEnginePlaying)
+        {
+            StopEngineSound();
+        }
+
+        // Setup engine source for playback
+        engineSource.clip = newClip;
+        engineSource.loop = true;
+        originalEngineVolume = sfxVolume * engineVolumeMultiplier;
+        engineSource.volume = originalEngineVolume;
+        engineSource.pitch = 1.0f;
+        engineSource.Play();
+
+        currentEngineSound = newClip;
+        isEnginePlaying = true;
+        isEngineDucked = false;
+
+        Debug.Log($"Playing engine sound: {newClip.name} at volume {originalEngineVolume:F2}");
+    }
+
+    // NEW: Stop engine sound
+    public void StopEngineSound()
+    {
+        if (isEnginePlaying)
+        {
+            engineSource.Stop();
+            engineSource.volume = sfxVolume * engineVolumeMultiplier;
+            currentEngineSound = null;
+            isEnginePlaying = false;
+            isEngineDucked = false;
+            currentEngineRPM = 0f;
+            Debug.Log("Engine sound stopped");
+        }
+    }
+
+    // NEW: Pause engine sound
+    public void PauseEngineSound()
+    {
+        if (isEnginePlaying)
+        {
+            engineSource.Pause();
+        }
+    }
+
+    // NEW: Resume engine sound
+    public void ResumeEngineSound()
+    {
+        if (isEnginePlaying)
+        {
+            engineSource.UnPause();
+        }
+    }
+
+    // NEW: Set engine RPM for pitch variation (0-100 range typically)
+    public void SetEngineRPM(float rpm)
+    {
+        currentEngineRPM = Mathf.Clamp(rpm, 0f, 100f);
+
+        if (isEnginePlaying && enableEngineRPMVariation)
+        {
+            // Map RPM to pitch range
+            float normalizedRPM = currentEngineRPM / 100f;
+            float targetPitch = Mathf.Lerp(minEnginePitch, maxEnginePitch, normalizedRPM);
+            engineSource.pitch = targetPitch;
+        }
+    }
+
+    // NEW: Duck engine sound volume for SFX
+    private void DuckEngineSound()
+    {
+        if (isEnginePlaying && enableAmbianceDucking && !isEngineDucked)
+        {
+            isEngineDucked = true;
+            float targetVolume = originalEngineVolume * duckingAmount;
+            StartCoroutine(FadeEngineVolume(targetVolume, duckingFadeTime));
+        }
+    }
+
+    // NEW: Restore engine sound volume after SFX
+    private void RestoreEngineSound()
+    {
+        if (isEnginePlaying && enableAmbianceDucking && isEngineDucked)
+        {
+            isEngineDucked = false;
+            StartCoroutine(FadeEngineVolume(originalEngineVolume, duckingFadeTime));
+        }
+    }
+
+    // NEW: Fade engine volume smoothly
+    private IEnumerator FadeEngineVolume(float targetVolume, float duration)
+    {
+        float startVolume = engineSource.volume;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < duration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = elapsedTime / duration;
+            engineSource.volume = Mathf.Lerp(startVolume, targetVolume, progress);
+            yield return null;
+        }
+
+        engineSource.volume = targetVolume;
     }
 
     #endregion
@@ -452,15 +641,19 @@ public class MusicController : MonoBehaviour
         Debug.Log("PlayCountdownGoSFX called but deprecated - use PlayCountdownFullSFX() instead");
     }
 
-    // NEW: Play SFX with individual volume control
+    // NEW: Play SFX with individual volume control (now also ducks engine sound)
     private void PlaySFXWithVolume(AudioClip clip, float volumeMultiplier)
     {
         if (clip != null && sfxSource != null)
         {
-            // Duck ambiance if enabled
+            // Duck ambiance and engine sound if enabled
             if (isAmbiancePlaying)
             {
                 DuckAmbiance();
+            }
+            if (isEnginePlaying)
+            {
+                DuckEngineSound();
             }
 
             // Create a temporary AudioSource for the SFX to avoid conflicts
@@ -476,15 +669,19 @@ public class MusicController : MonoBehaviour
         }
     }
 
-    // NEW: Play SFX with pitch and volume control
+    // NEW: Play SFX with pitch and volume control (now also ducks engine sound)
     private void PlaySFXWithPitchAndVolume(AudioClip clip, float pitch, float volumeMultiplier)
     {
         if (clip != null && sfxSource != null)
         {
-            // Duck ambiance if enabled
+            // Duck ambiance and engine sound if enabled
             if (isAmbiancePlaying)
             {
                 DuckAmbiance();
+            }
+            if (isEnginePlaying)
+            {
+                DuckEngineSound();
             }
 
             // Create a temporary AudioSource for the SFX to avoid conflicts
@@ -500,16 +697,20 @@ public class MusicController : MonoBehaviour
         }
     }
 
-    // NEW: Cleanup temporary SFX and restore ambiance
+    // NEW: Cleanup temporary SFX and restore ambiance and engine sound
     private IEnumerator CleanupTempSFX(GameObject tempSFX, float clipLength)
     {
         // Wait for the SFX to finish
         yield return new WaitForSeconds(clipLength);
 
-        // Restore ambiance volume
+        // Restore ambiance and engine sound volume
         if (isAmbiancePlaying)
         {
             RestoreAmbiance();
+        }
+        if (isEnginePlaying)
+        {
+            RestoreEngineSound();
         }
 
         // Cleanup the temporary AudioSource
@@ -556,6 +757,16 @@ public class MusicController : MonoBehaviour
                 sfxSource.volume = originalAmbianceVolume;
             }
         }
+
+        // NEW: Update engine volume if playing
+        if (isEnginePlaying)
+        {
+            originalEngineVolume = sfxVolume * engineVolumeMultiplier;
+            if (!isEngineDucked)
+            {
+                engineSource.volume = originalEngineVolume;
+            }
+        }
     }
 
     // Set ambiance volume multiplier
@@ -574,12 +785,32 @@ public class MusicController : MonoBehaviour
         }
     }
 
+    // NEW: Set engine volume multiplier
+    public void SetEngineVolumeMultiplier(float multiplier)
+    {
+        engineVolumeMultiplier = Mathf.Clamp01(multiplier);
+
+        // Update current engine volume if playing
+        if (isEnginePlaying)
+        {
+            originalEngineVolume = sfxVolume * engineVolumeMultiplier;
+            if (!isEngineDucked)
+            {
+                engineSource.volume = originalEngineVolume;
+            }
+        }
+    }
+
     public float GetMusicVolume() => musicVolume;
     public float GetSFXVolume() => sfxVolume;
     public float GetAmbianceVolumeMultiplier() => ambianceVolumeMultiplier;
+    public float GetEngineVolumeMultiplier() => engineVolumeMultiplier; // NEW: Getter for engine volume
 
     // Helper method to get effective ambiance volume
     public float GetAmbianceVolume() => sfxVolume * ambianceVolumeMultiplier;
+
+    // NEW: Helper method to get effective engine volume
+    public float GetEngineVolume() => sfxVolume * engineVolumeMultiplier;
 
     #endregion
 
@@ -623,6 +854,15 @@ public class MusicController : MonoBehaviour
     // Get current ambiance clip
     public AudioClip GetCurrentAmbiance() => currentAmbiance;
 
+    // NEW: Check if engine sound is currently playing
+    public bool IsEnginePlaying() => isEnginePlaying;
+
+    // NEW: Get current engine sound clip
+    public AudioClip GetCurrentEngineSound() => currentEngineSound;
+
+    // NEW: Get current engine RPM
+    public float GetCurrentEngineRPM() => currentEngineRPM;
+
     // NEW: Control ducking settings
     public void SetDuckingEnabled(bool enabled)
     {
@@ -632,6 +872,25 @@ public class MusicController : MonoBehaviour
     public void SetDuckingAmount(float amount)
     {
         duckingAmount = Mathf.Clamp01(amount);
+    }
+
+    // NEW: Control engine RPM variation
+    public void SetEngineRPMVariationEnabled(bool enabled)
+    {
+        enableEngineRPMVariation = enabled;
+
+        // Reset pitch if disabled
+        if (!enabled && isEnginePlaying)
+        {
+            engineSource.pitch = 1.0f;
+        }
+    }
+
+    // NEW: Set engine pitch range
+    public void SetEnginePitchRange(float minPitch, float maxPitch)
+    {
+        minEnginePitch = Mathf.Clamp(minPitch, 0.5f, 2.0f);
+        maxEnginePitch = Mathf.Clamp(maxPitch, minEnginePitch, 2.0f);
     }
 
     #endregion
