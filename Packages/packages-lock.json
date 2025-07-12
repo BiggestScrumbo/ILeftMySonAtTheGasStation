@@ -1,5 +1,12 @@
 {
   "dependencies": {
+    "com.opera.gx": {
+      "version": "https://github.com/opera-gaming/opera-unity-sdk.git?path=/Packages/com.opera.gx",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "ddf116bfa347cc8f562616965c1a6827db4e2a92"
+    },
     "com.unity.2d.animation": {
       "version": "10.1.4",
       "depth": 0,

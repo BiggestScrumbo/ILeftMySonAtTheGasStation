@@ -1,0 +1,20 @@
+{
+  "runOptions": {
+    "dataUrl": "Build/GxGamesBuild.data",
+    "frameworkUrl": "Build/GxGamesBuild.framework.js",
+    "codeUrl": "Build/GxGamesBuild.wasm",
+    "streamingAssetsUrl": "StreamingAssets",
+    "companyName": "DefaultCompany",
+    "productName": "ILeftMySonAtTheGasStation",
+    "productVersion": "0.1"
+  },
+  "pageData": {
+    "backgroundColor": "#231F20",
+    "backgroundFilename": "",
+    "height": "600",
+    "loaderFilename": "GxGamesBuild.loader.js",
+    "productName": "ILeftMySonAtTheGasStation",
+    "productVersion": "0.1",
+    "width": "960"
+  }
+}

@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.opera.gx": "https://github.com/opera-gaming/opera-unity-sdk.git?path=/Packages/com.opera.gx",
     "com.unity.2d.animation": "10.1.4",
     "com.unity.2d.pixel-perfect": "5.0.3",
     "com.unity.2d.psdimporter": "9.0.3",

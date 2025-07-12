@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 382dad02f77a3ba42922ebfadd334fba, type: 3}
+  m_Name: GameDataGx
+  m_EditorClassIdentifier: 
+  gameData:
+    name: I LEFT MY SON AT THE GAS STATION!
+    editUrl: https://dev.gx.games/games/d365c65f-d5e5-4e7d-864a-cd954c1332d9/details
+    group:
+      name: BigScrumbo studio
+      studioId: 4847609f-8f6f-4626-9a51-91aa034aa049
+      gameMaxSize: 2048
+    id: d365c65f-d5e5-4e7d-864a-cd954c1332d9
+    internalShareUrl: https://gx.games/games/1sryc0/i-left-my-son-at-the-gas-station-/tracks/0b0e9af9-5612-4c1e-b363-2186990db57e/
+    projectId: 
+    publicShareUrl: 
+    version:
+      major: 0
+      minor: 0
+      build: 0
+      revision: 1
+    nextVersion:
+      major: 0
+      minor: 0
+      build: 0
+      revision: 2
