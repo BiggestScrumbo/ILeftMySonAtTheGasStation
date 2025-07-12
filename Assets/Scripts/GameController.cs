@@ -157,6 +157,13 @@ public class GameController : MonoBehaviour
     // Make distanceTraveled accessible to TrafficLightOverlay
     public float DistanceTraveled => distanceTraveled;
 
+    [Header("Goal Animation")]
+    public TMP_Text goalText; // Text element for displaying "GOAL!" message
+    public float goalTextDisplayDuration = 2f; // How long to show the goal text
+    public float goalTextSize = 96f; // Size of goal text (larger than countdown)
+    public Color goalTextColor = Color.yellow; // Color of goal text
+    public bool enableGoalTextAnimation = true; // Toggle goal text on/off
+
     [Header("Win Scene")]
     public GameObject gasStationPrefab; // Assign your gas station sprite in inspector
     public GameObject gasStationBackgroundPrefab; // Gas station background prefab
@@ -915,6 +922,10 @@ public class GameController : MonoBehaviour
 
         if (bestTimeText != null)
             bestTimeText.gameObject.SetActive(false);
+
+        // NEW: Hide goal text at scene start
+        if (goalText != null)
+            goalText.gameObject.SetActive(false);
 
         // Ensure win panel is hidden
         if (winPanel != null)
@@ -1742,13 +1753,18 @@ public class GameController : MonoBehaviour
 
     private void Win()
     {
-
         if (pauseMenuController != null)
         {
             pauseMenuController.DisablePause();
         }
         timerStopped = true; // Stop the timer immediately when goal is reached
         hasWon = true; // Set hasWon immediately so timer stops at the exact moment
+
+        // NEW: Start goal text animation immediately when win is triggered
+        if (enableGoalTextAnimation)
+        {
+            StartCoroutine(ShowGoalText());
+        }
 
         // Deactivate boost if it's currently active
         if (isBoostActive)
@@ -1763,13 +1779,52 @@ public class GameController : MonoBehaviour
             MusicController.Instance.PlayWinSFX();
         }
 
-
-
         // Hide gameplay UI elements when win animation starts
         HideGameplayUI();
 
         // Start the win animation sequence
         StartCoroutine(PlayWinScene());
+    }
+
+    // New coroutine to handle the goal text animation
+    IEnumerator ShowGoalText()
+    {
+        if (goalText == null) yield break;
+
+        // Setup goal text
+        goalText.gameObject.SetActive(true);
+        goalText.text = "GOAL!";
+        goalText.fontSize = goalTextSize;
+        goalText.color = goalTextColor;
+        goalText.alignment = TextAlignmentOptions.Center;
+
+        // Start with the text invisible and scaled down
+        goalText.transform.localScale = Vector3.zero;
+        Color transparentColor = goalTextColor;
+        transparentColor.a = 0f;
+        goalText.color = transparentColor;
+
+        // Animate the text appearing with a dramatic entrance
+        goalText.transform.DOScale(1.2f, 0.5f)
+            .SetEase(Ease.OutElastic)
+            .OnComplete(() => {
+                // Slight bounce back to normal size
+                goalText.transform.DOScale(1f, 0.2f).SetEase(Ease.InOutQuad);
+            });
+
+        // Fade in the text
+        goalText.DOColor(goalTextColor, 0.3f).SetEase(Ease.OutQuad);
+
+        // Optional: Add a subtle pulsing effect while displayed
+        goalText.transform.DOPunchScale(new Vector3(0.1f, 0.1f, 0), 1f, 5, 0.3f)
+            .SetLoops(-1, LoopType.Restart)
+            .SetId("GoalTextPulse");
+
+        // Wait for the specified duration
+        yield return new WaitForSeconds(goalTextDisplayDuration);
+
+        // The text will be faded out during the gas station transition
+        // (handled in the PlayWinScene coroutine)
     }
 
     private void DisablePlayerCollision()
@@ -2112,6 +2167,16 @@ public class GameController : MonoBehaviour
                     roadSprite.color = fadeColor;
                 }
             }
+
+            // NEW: Fade out goal text during transition
+            if (goalText != null && goalText.gameObject.activeInHierarchy)
+            {
+                Color goalFadeColor = goalText.color;
+                goalFadeColor.a = goalTextColor.a * (1f - t); // Fade out proportionally
+                goalText.color = goalFadeColor;
+            }
+
+            // ... rest of the existing fade code for gas station elements ...
 
             // Fade in gas station background with road extensions
             if (gasStationBackground != null)
@@ -2718,6 +2783,12 @@ private void EnablePlayerCollision()
 
         // NEW: Cleanup character if it exists
         CleanupCharacter();
+
+        if (goalText != null)
+        {
+            DOTween.Kill("GoalTextPulse");
+            goalText.gameObject.SetActive(false);
+        }
 
         // Show gameplay UI elements on restart
         ShowGameplayUI();

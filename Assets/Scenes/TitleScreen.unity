@@ -3374,6 +3374,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   musicSource: {fileID: 0}
   sfxSource: {fileID: 0}
+  engineSource: {fileID: 0}
   titleScreenMusic: {fileID: 8300000, guid: 5ecb5ea472a30f040a46e62869b9009d, type: 3}
   gameplayMusic: {fileID: 8300000, guid: 22649702c79bdb241b6823dd7777c819, type: 3}
   winScreenMusic: {fileID: 8300000, guid: af9f512a38df5ce4c99fab8f5028512a, type: 3}
@@ -3383,6 +3384,15 @@ MonoBehaviour:
   playAmbianceDuringTitle: 0
   playAmbianceDuringGameplay: 1
   playAmbianceDuringWin: 0
+  engineIdleSound: {fileID: 8300000, guid: 37aea672228d9974c846247fb87d0474, type: 3}
+  engineRunningSound: {fileID: 8300000, guid: 37aea672228d9974c846247fb87d0474, type: 3}
+  playEngineDuringTitle: 0
+  playEngineDuringGameplay: 1
+  playEngineDuringWin: 0
+  engineVolumeMultiplier: 0.6
+  enableEngineRPMVariation: 1
+  minEnginePitch: 0.8
+  maxEnginePitch: 1.4
   buttonClickSFX: {fileID: 0}
   gearChangeSFX: {fileID: 8300000, guid: 7ab9a581356627c479a7a953cab6d97d, type: 3}
   obstacleHitSFX: {fileID: 8300000, guid: 0c076d563be519543a7881aee296f8a1, type: 3}
@@ -3391,7 +3401,7 @@ MonoBehaviour:
   gameOverSFX: {fileID: 0}
   winSFX: {fileID: 0}
   boostCollisionSFX: {fileID: 8300000, guid: 9cb006a8be3139444b9d124e2b4abef1, type: 3}
-  countdownFullSFX: {fileID: 0}
+  countdownFullSFX: {fileID: 8300000, guid: 46ebeccc15831c64eaa46ae12a796dfe, type: 3}
   useCountdownSFX: 1
   obstacleHitVolume: 1.2
   gearChangeVolume: 0.6
