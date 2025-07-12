@@ -44,12 +44,27 @@ public class PlayerCollision : MonoBehaviour
             return; // Exit early to avoid obstacle collision processing
         }
 
-        // Check for obstacles - but only process if not in boost mode
+        // Check for obstacles - but only process if not in boost mode and not invulnerable
         if (collision.gameObject.CompareTag("Obstacle") ||
             collision.gameObject.tag == "Obstacle" ||
             collision.gameObject.name.ToLower().Contains("obstacle"))
         {
             Debug.Log("Obstacle detected!");
+
+            // NEW: Check if player is invulnerable or halted before processing collision
+            if (gameController.IsInvulnerable() || gameController.IsHalted())
+            {
+                Debug.Log("Player is invulnerable or halted - ignoring obstacle collision");
+                return;
+            }
+
+            // NEW: Check if the obstacle has already been processed (has ObstacleCollision component that has exploded)
+            ObstacleCollision obstacleCollision = collision.gameObject.GetComponent<ObstacleCollision>();
+            if (obstacleCollision != null && obstacleCollision.HasExploded())
+            {
+                Debug.Log("Obstacle has already exploded - ignoring collision");
+                return;
+            }
 
             // If boost is active, the GameController will handle destroying the obstacle
             // without penalty, so we still call the method
@@ -93,6 +108,21 @@ public class PlayerCollision : MonoBehaviour
             other.name.ToLower().Contains("obstacle"))
         {
             Debug.Log("Obstacle trigger detected!");
+
+            // NEW: Check if player is invulnerable or halted before processing collision
+            if (gameController.IsInvulnerable() || gameController.IsHalted())
+            {
+                Debug.Log("Player is invulnerable or halted - ignoring obstacle trigger");
+                return;
+            }
+
+            // NEW: Check if the obstacle has already been processed
+            ObstacleCollision obstacleCollision = other.GetComponent<ObstacleCollision>();
+            if (obstacleCollision != null && obstacleCollision.HasExploded())
+            {
+                Debug.Log("Obstacle has already exploded - ignoring trigger");
+                return;
+            }
 
             // Call the obstacle hit method - GameController will handle boost logic
             gameController.OnPlayerHitObstacle(other.gameObject);

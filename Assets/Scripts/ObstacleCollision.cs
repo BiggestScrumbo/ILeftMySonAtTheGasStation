@@ -17,6 +17,12 @@ public class ObstacleCollision : MonoBehaviour
     private GameController gameController;
     private Vector3 moveDirection = Vector3.left; // Moving left (toward player)
 
+    // NEW: Public method to check if obstacle has already exploded
+    public bool HasExploded()
+    {
+        return hasExploded;
+    }
+
     private void Awake()
     {
         Debug.Log($"ObstacleCollision initialized on {gameObject.name}");

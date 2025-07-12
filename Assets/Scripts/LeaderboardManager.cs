@@ -102,8 +102,8 @@ namespace LeaderboardCreatorDemo
             // Q: How do I reference my own leaderboard?
             // A: Leaderboards.<NameOfTheLeaderboard>
 
-            // For racing games, we want fastest times first (ascending order)
-            Leaderboards.ILeftMySonAtTheGasStation.GetEntries(true, entries =>
+            // For a game like this, we want fastest times first (ascending order)
+            Leaderboards.ILMSATGSNightCityVer.GetEntries(true, entries =>
             {
                 // Only update if leaderboard is still supposed to be visible
                 if (!isLeaderboardVisible) return;
@@ -161,7 +161,7 @@ namespace LeaderboardCreatorDemo
 
         public void UploadEntry()
         {
-            Leaderboards.ILeftMySonAtTheGasStation.UploadNewEntry(_usernameInputField.text, timeAsScore, isSuccessful =>
+            Leaderboards.ILMSATGSNightCityVer.UploadNewEntry(_usernameInputField.text, timeAsScore, isSuccessful =>
             {
                 if (isSuccessful && isLeaderboardVisible)
                     LoadEntries();
@@ -176,7 +176,7 @@ namespace LeaderboardCreatorDemo
                 return;
             }
 
-            Leaderboards.ILeftMySonAtTheGasStation.UploadNewEntry(username, timeAsScore, isSuccessful =>
+            Leaderboards.ILMSATGSNightCityVer.UploadNewEntry(username, timeAsScore, isSuccessful =>
             {
                 if (isSuccessful)
                 {
