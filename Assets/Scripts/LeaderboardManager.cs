@@ -103,7 +103,7 @@ namespace LeaderboardCreatorDemo
             // A: Leaderboards.<NameOfTheLeaderboard>
 
             // For a game like this, we want fastest times first (ascending order)
-            Leaderboards.ILMSATGSNightCityVer.GetEntries(true, entries =>
+            Leaderboards.ILMSATGSGXGamesVer.GetEntries(true, entries =>
             {
                 // Only update if leaderboard is still supposed to be visible
                 if (!isLeaderboardVisible) return;
@@ -161,7 +161,7 @@ namespace LeaderboardCreatorDemo
 
         public void UploadEntry()
         {
-            Leaderboards.ILMSATGSNightCityVer.UploadNewEntry(_usernameInputField.text, timeAsScore, isSuccessful =>
+            Leaderboards.ILMSATGSGXGamesVer.UploadNewEntry(_usernameInputField.text, timeAsScore, isSuccessful =>
             {
                 if (isSuccessful && isLeaderboardVisible)
                     LoadEntries();
@@ -176,7 +176,7 @@ namespace LeaderboardCreatorDemo
                 return;
             }
 
-            Leaderboards.ILMSATGSNightCityVer.UploadNewEntry(username, timeAsScore, isSuccessful =>
+            Leaderboards.ILMSATGSGXGamesVer.UploadNewEntry(username, timeAsScore, isSuccessful =>
             {
                 if (isSuccessful)
                 {
